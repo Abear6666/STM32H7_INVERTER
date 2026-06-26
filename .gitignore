@@ -1,0 +1,34 @@
+# Editor / OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.vs/
+.idea/
+*.suo
+*.user
+*.userossc
+*.swp
+*.tmp
+*.log
+__pycache__/
+
+# Top-level non-source payloads
+【正点原子】手把手教你学STM32 HAL库（全系列）资料A盘/
+sscomV5131.exe
+
+# Project build outputs
+/apollo_h743_lvgl_hmi/build/gcc-debug/
+/apollo_h743_lvgl_hmi/build/downloads/
+/apollo_h743_lvgl_hmi/build/official_hex/
+/apollo_h743_lvgl_hmi/build/tmp_*.cs
+
+# Keep only selected reference source fragments under build/reference
+/apollo_h743_lvgl_hmi/build/reference/*
+!/apollo_h743_lvgl_hmi/build/reference/phase7_9/
+!/apollo_h743_lvgl_hmi/build/reference/phase7_9/**
+
+# .NET build outputs
+/apollo_h743_lvgl_hmi/Tools/**/bin/
+/apollo_h743_lvgl_hmi/Tools/**/obj/
+/apollo_h743_lvgl_hmi/Tools/**/publish/
