@@ -2957,3 +2957,77 @@ Phase 13 Step 5 已完成本地构建验证。
 本轮未接真实 RS485，未新增正式 task_comm/task_core，未实板烧录，也未重新跑 USB/SD IAP 闭环。
 下一步建议实现 Step 6：把当前临时 task_log 轮询迁移为正式 task_comm / task_core，补齐任务栈水位统计，并确认不影响 task_iap、USB CDC、SD IAP。
 ```
+
+## 2026-06-28 Phase 13 Step 6 task_comm / task_core 任务拆分
+
+目标：按 `Docs/phase13_comm_architecture_plan.md` 的 Step 6，把 Step 3-5 临时放在 `task_log` 里的通信轮询和事件消费拆到正式任务中，形成面试可讲清楚的 RTOS 任务解耦结构。本轮不接真实 SPI/CAN/RS485，不修改 Boot/IAP/Flash 分区。
+
+本轮修改：
+
+```text
+1. app_tasks.c 新增 task_comm。
+   - 100ms 周期调用 app_dsp_link_poll()。
+   - 100ms 周期调用 app_bms_can_poll()。
+   - 100ms 周期调用 app_modbus_rtu_poll()。
+   - 只负责通信模拟和协议状态机推进，不直接修改 LVGL UI。
+
+2. app_tasks.c 新增 task_core。
+   - 50ms 周期从 app_comm_bus 消费最多 16 个事件。
+   - 统一调用 app_system_model_process_event() 汇总 DSP/BMS/Modbus 状态。
+   - 周期调用 app_system_model_poll() 维护 online/offline 超时状态。
+
+3. task_log 恢复为日志和心跳职责。
+   - 不再轮询 DSP/BMS/Modbus。
+   - 不再消费 comm bus 事件。
+   - 1s 翻转 LED0。
+   - 5s 打印一次诊断日志。
+
+4. app_tasks_get_runtime_status() 补齐 task_comm / task_core 栈水位。
+   - 周期日志中的 comm/core 不再是 0。
+   - HMI 首页任务水位字段也能读到真实 comm/core 余量。
+
+5. 新增任务栈配置。
+   - TASK_COMM_STACK_WORDS = 2048 words。
+   - TASK_CORE_STACK_WORDS = 2048 words。
+   - 当前 FreeRTOS heap 配置为 96KB，本轮新增两个任务会增加 heap 占用，后续实板需观察 heap_free 和 comm/core watermark。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 334412 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 316936 bytes / 512 KiB
+AppA slot image       = 335436 bytes
+AppA slot package CRC = 0xBE05A5B6
+AppA body CRC32       = 0x5758CE70
+
+AppB FLASH used       = 335060 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 316936 bytes / 512 KiB
+AppB slot image       = 336084 bytes
+AppB slot package CRC = 0xEC11517C
+AppB body CRC32       = 0x43C74B33
+```
+
+预期串口周期日志：
+
+```text
+task_comm started
+task_core started
+stack watermark words: gui=... storage=... log=... iap=... comm=... core=... idle=... heap_free=...
+dsp link: online=... rx=... valid=... crc_err=... invalid=... timeout=... cmd=... ack=...
+bms can: online=... rx=... status=... limits=... alarm=... invalid=... timeout=...
+modbus: req=... resp=... exc=... crc=... write=...
+```
+
+当前结论：
+
+```text
+Phase 13 Step 6 已完成本地构建验证。
+当前 RTOS 任务边界为：task_comm 负责通信协议轮询，task_core 负责事件消费和 system model 汇总，task_gui 只读 system model 快照刷新界面，task_log 只做心跳和诊断日志。
+本轮未实板烧录，未重新跑 USB/SD IAP 闭环；因为没有修改 Boot/IAP/分区/USB/SD/FatFs，按验证边界本地构建通过即可作为本 Step 的代码验收。
+下一步建议做 Step 7：把 HMI 首页或诊断页的通信状态显示再整理一轮，重点确认 DSP/BMS/Modbus 的 online、计数、异常和任务水位字段在屏幕上可读，并准备面试讲述稿。
+```

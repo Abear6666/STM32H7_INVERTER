@@ -24,16 +24,22 @@
 #define TASK_STORAGE_STACK_WORDS 1024U
 #define TASK_LOG_STACK_WORDS     1024U
 #define TASK_IAP_STACK_WORDS     2048U
+#define TASK_COMM_STACK_WORDS    2048U
+#define TASK_CORE_STACK_WORDS    2048U
 
 static TaskHandle_t s_task_gui;
 static TaskHandle_t s_task_storage;
 static TaskHandle_t s_task_log;
 static TaskHandle_t s_task_iap;
+static TaskHandle_t s_task_comm;
+static TaskHandle_t s_task_core;
 
 static void task_gui(void *argument);
 static void task_storage(void *argument);
 static void task_log(void *argument);
 static void task_iap(void *argument);
+static void task_comm(void *argument);
+static void task_core(void *argument);
 static void app_tasks_process_comm_events(uint32_t max_events);
 static void app_tasks_print_stack_watermarks(void);
 
@@ -73,6 +79,22 @@ void app_tasks_start_scheduler(void)
                      &s_task_iap);
     configASSERT(ok == pdPASS);
 
+    ok = xTaskCreate(task_comm,
+                     "task_comm",
+                     TASK_COMM_STACK_WORDS,
+                     NULL,
+                     tskIDLE_PRIORITY + 1U,
+                     &s_task_comm);
+    configASSERT(ok == pdPASS);
+
+    ok = xTaskCreate(task_core,
+                     "task_core",
+                     TASK_CORE_STACK_WORDS,
+                     NULL,
+                     tskIDLE_PRIORITY + 1U,
+                     &s_task_core);
+    configASSERT(ok == pdPASS);
+
     printf("FreeRTOS scheduler start\r\n");
     vTaskStartScheduler();
 
@@ -90,8 +112,8 @@ void app_tasks_get_runtime_status(app_task_runtime_status_t *status)
     status->storage_stack_free_words = (s_task_storage != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_storage) : 0U;
     status->log_stack_free_words = (s_task_log != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_log) : 0U;
     status->iap_stack_free_words = (s_task_iap != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_iap) : 0U;
-    status->comm_stack_free_words = 0U;
-    status->core_stack_free_words = 0U;
+    status->comm_stack_free_words = (s_task_comm != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_comm) : 0U;
+    status->core_stack_free_words = (s_task_core != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_core) : 0U;
     status->idle_stack_free_words = (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) ?
                                     (uint32_t)uxTaskGetStackHighWaterMark(xTaskGetIdleTaskHandle()) :
                                     0U;
@@ -179,32 +201,61 @@ static void task_log(void *argument)
 
     while (1)
     {
-        uint32_t now = (uint32_t)HAL_GetTick();
-
-        app_dsp_link_poll(now);
-        app_bms_can_poll(now);
-        app_modbus_rtu_poll(now);
-        app_tasks_process_comm_events(8U);
-        app_system_model_poll(now);
         tick_count++;
 
-        if ((tick_count % 10U) == 0U)
-        {
-            app_led0_toggle();
-        }
+        app_led0_toggle();
 
-        if ((tick_count % 50U) == 0U)
+        if ((tick_count % 5U) == 0U)
         {
             app_tasks_print_stack_watermarks();
         }
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(100U));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(1000U));
     }
 }
 
 static void task_iap(void *argument)
 {
     app_iap_task(argument);
+}
+
+static void task_comm(void *argument)
+{
+    TickType_t last_wake = xTaskGetTickCount();
+
+    (void)argument;
+    printf("task_comm started\r\n");
+    app_log_event("task_comm started");
+
+    while (1)
+    {
+        uint32_t now = (uint32_t)HAL_GetTick();
+
+        app_dsp_link_poll(now);
+        app_bms_can_poll(now);
+        app_modbus_rtu_poll(now);
+
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(100U));
+    }
+}
+
+static void task_core(void *argument)
+{
+    TickType_t last_wake = xTaskGetTickCount();
+
+    (void)argument;
+    printf("task_core started\r\n");
+    app_log_event("task_core started");
+
+    while (1)
+    {
+        uint32_t now = (uint32_t)HAL_GetTick();
+
+        app_tasks_process_comm_events(16U);
+        app_system_model_poll(now);
+
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(50U));
+    }
 }
 
 static void app_tasks_process_comm_events(uint32_t max_events)
