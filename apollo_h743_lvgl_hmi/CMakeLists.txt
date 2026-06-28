@@ -198,11 +198,13 @@ set(APP_SOURCES
     ${APP_DIR}/Core/Src/lcd.c
     ${APP_DIR}/Core/Src/touch.c
     ${APP_DIR}/Core/Src/app_critical.c
+    ${APP_DIR}/Core/Src/app_comm_bus.c
     ${APP_DIR}/Core/Src/app_diag.c
     ${APP_DIR}/Core/Src/app_iap.c
     ${APP_DIR}/Core/Src/app_log.c
     ${APP_DIR}/Core/Src/app_sd.c
     ${APP_DIR}/Core/Src/app_settings.c
+    ${APP_DIR}/Core/Src/app_system_model.c
     ${APP_DIR}/Core/Src/app_w25q256.c
     ${APP_DIR}/Core/Src/app_storage.c
     ${APP_DIR}/Core/Src/app_ui_hmi.c

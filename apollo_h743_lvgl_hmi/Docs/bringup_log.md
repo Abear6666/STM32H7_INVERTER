@@ -2719,3 +2719,62 @@ AppB body CRC32       = 0x4582521D
 系统诊断底座已完成本地构建验证。
 本轮未重新下载到实板；下一次实板验证重点看串口 diag 日志、HMI 首页诊断字段、周期栈余量日志是否仍正常。
 ```
+## 2026-06-28 Phase 13 Step 2 通信总线和系统状态模型
+
+目标：按 `Docs/phase13_comm_architecture_plan.md` 的 Step 2，先落地通信解耦基础设施，不接真实 DSP/CAN/Modbus 硬件，不改 Boot/IAP 分区。
+
+本轮修改：
+
+```text
+1. 新增 app_comm_bus.c/app_comm_bus.h。
+   - 提供 app_comm_publish() / app_comm_receive()。
+   - 第一版内部使用 FreeRTOS queue。
+   - 定义 DSP/BMS/Modbus 事件类型和事件载荷结构。
+
+2. 新增 app_system_model.c/app_system_model.h。
+   - 集中维护 DSP/BMS/Modbus 快照。
+   - 提供 app_system_model_process_event() 和 app_system_model_get_snapshot()。
+   - 预留 DSP/BMS online/offline、CRC 错误、超时计数、Modbus 请求/异常计数。
+
+3. main.c 在 app_log_init() 后初始化 comm bus 和 system model。
+
+4. app_tasks 增加 comm/core 栈水位字段预留。
+   - 当前 Step 2 尚未创建 task_comm/task_core，因此显示为 0。
+   - task_log 临时承担第一版 core 事件泵职责，周期从 comm bus 取事件并调用 app_system_model_process_event()。
+   - task_log 周期调用 app_system_model_poll() 维护超时状态。
+
+5. HMI 首页改为通过 app_system_model_get_snapshot() 读取通信状态。
+   - 当前 DSP/BMS 默认 offline。
+   - Modbus 请求/异常/CRC 计数默认 0。
+   - UI 不直接读取协议模块内部变量，为后续模拟通信接入预留。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 325328 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 316744 bytes / 512 KiB
+AppA slot image       = 326352 bytes
+AppA slot package CRC = 0xD61EC491
+AppA body CRC32       = 0xB0762534
+
+AppB FLASH used       = 325976 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 316744 bytes / 512 KiB
+AppB slot image       = 327000 bytes
+AppB slot package CRC = 0xE9933D5F
+AppB body CRC32       = 0xBF4916A6
+```
+
+当前结论：
+
+```text
+Phase 13 Step 2 已完成本地构建验证。
+本轮建立通信总线、系统状态模型和临时事件消费入口；后续 DSP/BMS/Modbus 模拟模块可先 publish 到 comm bus，再由 system model 汇总。
+本轮未接入 DSP/BMS/Modbus 模拟帧生成和协议解析。
+本轮未实板烧录，也未重新跑 USB/SD IAP 闭环。
+下一步建议实现 Step 3：app_dsp_link + 虚拟 DSP 帧生成，先让 DSP 状态通过 comm bus 进入 system model，再由 HMI 首页显示 online/数值/CRC/timeout。
+```

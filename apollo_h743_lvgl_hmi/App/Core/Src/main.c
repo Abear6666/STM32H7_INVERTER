@@ -4,9 +4,11 @@
 
 #include "app_diag.h"
 #include "app_log.h"
+#include "app_comm_bus.h"
 #include "app_iap.h"
 #include "app_settings.h"
 #include "app_storage.h"
+#include "app_system_model.h"
 #include "app_tasks.h"
 #include "app_vector.h"
 #include "flash_layout.h"
@@ -93,6 +95,16 @@ int main(void)
     }
 
     app_log_init();
+    if (app_comm_bus_init())
+    {
+        printf("Phase 13 comm bus init OK\r\n");
+    }
+    else
+    {
+        printf("Phase 13 comm bus init FAIL\r\n");
+    }
+    app_system_model_init();
+    app_log_event("Phase 13 system model ready");
     app_settings_init();
 
     printf("Storage init start\r\n");

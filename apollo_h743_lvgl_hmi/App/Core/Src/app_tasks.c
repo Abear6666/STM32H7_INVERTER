@@ -3,11 +3,13 @@
 #include <stdio.h>
 
 #include "FreeRTOS.h"
+#include "app_comm_bus.h"
 #include "app_iap.h"
 #include "app_iap_record.h"
 #include "app_log.h"
 #include "app_settings.h"
 #include "app_storage.h"
+#include "app_system_model.h"
 #include "app_ui_hmi.h"
 #include "led.h"
 #include "lvgl.h"
@@ -29,6 +31,7 @@ static void task_gui(void *argument);
 static void task_storage(void *argument);
 static void task_log(void *argument);
 static void task_iap(void *argument);
+static void app_tasks_process_comm_events(uint32_t max_events);
 static void app_tasks_print_stack_watermarks(void);
 
 void app_tasks_start_scheduler(void)
@@ -84,6 +87,8 @@ void app_tasks_get_runtime_status(app_task_runtime_status_t *status)
     status->storage_stack_free_words = (s_task_storage != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_storage) : 0U;
     status->log_stack_free_words = (s_task_log != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_log) : 0U;
     status->iap_stack_free_words = (s_task_iap != NULL) ? (uint32_t)uxTaskGetStackHighWaterMark(s_task_iap) : 0U;
+    status->comm_stack_free_words = 0U;
+    status->core_stack_free_words = 0U;
     status->idle_stack_free_words = (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) ?
                                     (uint32_t)uxTaskGetStackHighWaterMark(xTaskGetIdleTaskHandle()) :
                                     0U;
@@ -172,6 +177,8 @@ static void task_log(void *argument)
     while (1)
     {
         app_led0_toggle();
+        app_tasks_process_comm_events(8U);
+        app_system_model_poll((uint32_t)HAL_GetTick());
         seconds++;
 
         if ((seconds % 5U) == 0U)
@@ -188,6 +195,21 @@ static void task_iap(void *argument)
     app_iap_task(argument);
 }
 
+static void app_tasks_process_comm_events(uint32_t max_events)
+{
+    app_comm_event_t event;
+
+    for (uint32_t i = 0; i < max_events; ++i)
+    {
+        if (!app_comm_receive(&event, 0U))
+        {
+            break;
+        }
+
+        app_system_model_process_event(&event);
+    }
+}
+
 static void app_tasks_print_stack_watermarks(void)
 {
     app_storage_status_t storage;
@@ -200,11 +222,13 @@ static void app_tasks_print_stack_watermarks(void)
     app_iap_get_status(&iap);
     app_tasks_get_runtime_status(&runtime);
 
-    printf("stack watermark words: gui=%lu storage=%lu log=%lu iap=%lu idle=%lu heap_free=%lu\r\n",
+    printf("stack watermark words: gui=%lu storage=%lu log=%lu iap=%lu comm=%lu core=%lu idle=%lu heap_free=%lu\r\n",
            (unsigned long)runtime.gui_stack_free_words,
            (unsigned long)runtime.storage_stack_free_words,
            (unsigned long)runtime.log_stack_free_words,
            (unsigned long)runtime.iap_stack_free_words,
+           (unsigned long)runtime.comm_stack_free_words,
+           (unsigned long)runtime.core_stack_free_words,
            (unsigned long)runtime.idle_stack_free_words,
            (unsigned long)runtime.heap_free_bytes);
     printf("storage status: flash=%u id=0x%06lX load=%s save_ok=%lu save_fail=%lu dirty=%u\r\n",

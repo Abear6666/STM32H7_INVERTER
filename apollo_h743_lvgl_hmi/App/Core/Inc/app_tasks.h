@@ -9,6 +9,8 @@ typedef struct
     uint32_t storage_stack_free_words;
     uint32_t log_stack_free_words;
     uint32_t iap_stack_free_words;
+    uint32_t comm_stack_free_words;
+    uint32_t core_stack_free_words;
     uint32_t idle_stack_free_words;
     uint32_t heap_free_bytes;
     uint32_t heap_min_free_bytes;

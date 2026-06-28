@@ -8,6 +8,7 @@
 #include "app_iap_record.h"
 #include "app_settings.h"
 #include "app_storage.h"
+#include "app_system_model.h"
 #include "app_tasks.h"
 #include "lvgl.h"
 #include "system_clock.h"
@@ -363,23 +364,22 @@ static void ui_update_home(uint32_t now_ms)
     app_storage_status_t storage;
     app_diag_snapshot_t diag;
     app_task_runtime_status_t tasks;
+    app_system_snapshot_t system;
     app_clock_info_t clk;
     uint32_t seconds = now_ms / 1000U;
-    uint32_t temp_x10 = 286U + ((seconds * 3U) % 45U);
-    uint32_t bus_mv = 238000U + ((seconds * 97U) % 5000U);
-    uint32_t current_ma = 1200U + ((seconds * 43U) % 1700U);
 
     app_settings_get(&settings);
     app_storage_get_status(&storage);
     app_diag_get_snapshot(&diag);
     app_tasks_get_runtime_status(&tasks);
+    app_system_model_get_snapshot(&system);
     clk = app_clock_get_info();
 
     lv_label_set_text_fmt(s_home_status,
                           "Uptime: %lu s   RTOS: running   Storage: %s\n"
                           "W25Q JEDEC: 0x%06lX   Params: %s\n"
                           "Reset: %s   Boot: %lu   Fault: %s count=%lu\n"
-                          "Heap: %lu/%lu B   Stack G/S/L/I/Idle: %lu/%lu/%lu/%lu/%lu",
+                          "Heap: %lu/%lu B   Stack G/S/L/I/C/Core/Idle: %lu/%lu/%lu/%lu/%lu/%lu/%lu",
                           (unsigned long)seconds,
                           storage.flash_ready ? "ready" : "fail",
                           (unsigned long)storage.jedec_id,
@@ -394,20 +394,38 @@ static void ui_update_home(uint32_t now_ms)
                           (unsigned long)tasks.storage_stack_free_words,
                           (unsigned long)tasks.log_stack_free_words,
                           (unsigned long)tasks.iap_stack_free_words,
+                          (unsigned long)tasks.comm_stack_free_words,
+                          (unsigned long)tasks.core_stack_free_words,
                           (unsigned long)tasks.idle_stack_free_words);
 
     lv_label_set_text_fmt(s_home_values,
-                          "Bus voltage: %lu.%03lu V\n"
-                          "Output current: %lu.%03lu A\n"
-                          "Temperature: %lu.%lu C\n"
+                          "DSP: %s Vbus=%ld.%ld V Iout=%ld.%ld A Temp=%ld.%ld C frame=%lu err=%lu/%lu\n"
+                          "BMS: %s SOC=%lu.%lu%% Vbat=%ld.%ld V Ibat=%ld.%ld A frame=%lu timeout=%lu\n"
+                          "MODBUS: req=%lu exc=%lu crc=%lu\n"
                           "Brightness: %lu%%   Threshold: %ld   Output: %s\n"
                           "Clock SYS/HCLK/LTDC/FMC: %lu/%lu/%lu/%lu MHz",
-                          (unsigned long)(bus_mv / 1000U),
-                          (unsigned long)(bus_mv % 1000U),
-                          (unsigned long)(current_ma / 1000U),
-                          (unsigned long)(current_ma % 1000U),
-                          (unsigned long)(temp_x10 / 10U),
-                          (unsigned long)(temp_x10 % 10U),
+                          system.dsp.online ? "online" : "offline",
+                          (long)(system.dsp.bus_voltage_v_x10 / 10),
+                          (long)((system.dsp.bus_voltage_v_x10 < 0) ? -(system.dsp.bus_voltage_v_x10 % 10) : (system.dsp.bus_voltage_v_x10 % 10)),
+                          (long)(system.dsp.output_current_a_x10 / 10),
+                          (long)((system.dsp.output_current_a_x10 < 0) ? -(system.dsp.output_current_a_x10 % 10) : (system.dsp.output_current_a_x10 % 10)),
+                          (long)(system.dsp.temperature_c_x10 / 10),
+                          (long)((system.dsp.temperature_c_x10 < 0) ? -(system.dsp.temperature_c_x10 % 10) : (system.dsp.temperature_c_x10 % 10)),
+                          (unsigned long)system.dsp.frame_count,
+                          (unsigned long)system.dsp.crc_error_count,
+                          (unsigned long)system.dsp.timeout_count,
+                          system.bms.online ? "online" : "offline",
+                          (unsigned long)(system.bms.soc_percent_x10 / 10U),
+                          (unsigned long)(system.bms.soc_percent_x10 % 10U),
+                          (long)(system.bms.pack_voltage_v_x10 / 10),
+                          (long)((system.bms.pack_voltage_v_x10 < 0) ? -(system.bms.pack_voltage_v_x10 % 10) : (system.bms.pack_voltage_v_x10 % 10)),
+                          (long)(system.bms.pack_current_a_x10 / 10),
+                          (long)((system.bms.pack_current_a_x10 < 0) ? -(system.bms.pack_current_a_x10 % 10) : (system.bms.pack_current_a_x10 % 10)),
+                          (unsigned long)system.bms.frame_count,
+                          (unsigned long)system.bms.timeout_count,
+                          (unsigned long)system.modbus.request_count,
+                          (unsigned long)system.modbus.exception_count,
+                          (unsigned long)system.modbus.crc_error_count,
                           (unsigned long)settings.brightness,
                           (long)settings.threshold,
                           settings.output_enabled ? "ON" : "OFF",
