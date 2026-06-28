@@ -86,7 +86,10 @@ void app_system_model_process_event(const app_comm_event_t *event)
 
     case APP_COMM_EVENT_MODBUS_WRITE:
         s_system_snapshot.modbus.request_count++;
+        s_system_snapshot.modbus.write_count++;
         s_system_snapshot.modbus.last_request_ms = event->timestamp_ms;
+        s_system_snapshot.modbus.last_write_reg = event->data.modbus_write.reg;
+        s_system_snapshot.modbus.last_write_value = event->data.modbus_write.value;
         break;
 
     case APP_COMM_EVENT_MODBUS_ERROR:
@@ -96,6 +99,7 @@ void app_system_model_process_event(const app_comm_event_t *event)
         }
         s_system_snapshot.modbus.exception_count++;
         s_system_snapshot.modbus.last_request_ms = event->timestamp_ms;
+        s_system_snapshot.modbus.last_error_code = event->data.error_code;
         break;
 
     default:

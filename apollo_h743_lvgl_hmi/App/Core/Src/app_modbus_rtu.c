@@ -33,10 +33,12 @@ static bool app_modbus_build_write_request(uint16_t reg,
                                            uint32_t *tx_len);
 static void app_modbus_corrupt_crc(uint8_t *frame, uint32_t frame_len);
 static void app_modbus_note_request(const app_modbus_request_t *request, uint32_t now_ms);
+static void app_modbus_note_write_success(const app_modbus_request_t *request, uint32_t now_ms);
 static void app_modbus_note_response(void);
 static void app_modbus_note_crc_error(uint32_t now_ms);
 static void app_modbus_note_exception(app_modbus_exception_t exception, uint32_t now_ms);
 static void app_modbus_publish_event(app_comm_event_type_t type, uint32_t now_ms, uint32_t code);
+static void app_modbus_publish_write_event(const app_modbus_request_t *request, uint32_t now_ms);
 
 bool app_modbus_rtu_init(uint8_t slave_addr)
 {
@@ -173,6 +175,7 @@ bool app_modbus_rtu_build_response(const app_modbus_request_t *request,
             return app_modbus_rtu_build_response(&exception, tx, tx_size, tx_len);
         }
 
+        app_modbus_note_write_success(request, request->timestamp_ms);
         tx[1] = request->function;
         app_modbus_write_u16_be(&tx[2], request->start_reg);
         app_modbus_write_u16_be(&tx[4], request->value);
@@ -473,11 +476,20 @@ static void app_modbus_note_request(const app_modbus_request_t *request, uint32_
     s_modbus_diag.last_function = request->function;
     app_critical_exit(primask);
 
-    app_modbus_publish_event((request->function == APP_MODBUS_FUNC_WRITE_SINGLE) ?
-                             APP_COMM_EVENT_MODBUS_WRITE :
-                             APP_COMM_EVENT_MODBUS_REQUEST,
-                             now_ms,
-                             request->start_reg);
+    if (request->function != APP_MODBUS_FUNC_WRITE_SINGLE)
+    {
+        app_modbus_publish_event(APP_COMM_EVENT_MODBUS_REQUEST, now_ms, request->start_reg);
+    }
+}
+
+static void app_modbus_note_write_success(const app_modbus_request_t *request, uint32_t now_ms)
+{
+    if (request == NULL)
+    {
+        return;
+    }
+
+    app_modbus_publish_write_event(request, now_ms);
 }
 
 static void app_modbus_note_response(void)
@@ -519,5 +531,23 @@ static void app_modbus_publish_event(app_comm_event_type_t type, uint32_t now_ms
     event.timestamp_ms = now_ms;
     event.source = APP_COMM_SOURCE_MODBUS_RTU;
     event.data.error_code = code;
+    (void)app_comm_publish(&event, 0U);
+}
+
+static void app_modbus_publish_write_event(const app_modbus_request_t *request, uint32_t now_ms)
+{
+    app_comm_event_t event;
+
+    if (request == NULL)
+    {
+        return;
+    }
+
+    memset(&event, 0, sizeof(event));
+    event.type = APP_COMM_EVENT_MODBUS_WRITE;
+    event.timestamp_ms = now_ms;
+    event.source = APP_COMM_SOURCE_MODBUS_RTU;
+    event.data.modbus_write.reg = request->start_reg;
+    event.data.modbus_write.value = request->value;
     (void)app_comm_publish(&event, 0U);
 }

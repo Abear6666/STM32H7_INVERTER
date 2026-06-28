@@ -715,6 +715,26 @@ App/Core/Src/app_tasks.c
 - 周期日志能看到 `task_comm` / `task_core` 水位。
 - 不影响 `task_iap`、USB CDC、SD IAP。
 
+### Step 7：整理 HMI 通信诊断显示
+
+计划修改：
+
+```text
+App/Core/Inc/app_system_model.h
+App/Core/Src/app_system_model.c
+App/Core/Src/app_modbus_rtu.c
+App/Core/Src/app_ui_hmi.c
+```
+
+验收：
+
+- HMI 首页能直接看到 DSP online、Vbus、Grid、Iout、Temp、run/warn/fault、frame、ack、CRC/timeout。
+- HMI 首页能直接看到 BMS online、SOC/SOH、电压、电流、温度、充放电限值、alarm/fault、frame、timeout。
+- HMI 首页能直接看到 Modbus req/write/exception/CRC、最后一次写寄存器和值、最后错误类型。
+- Modbus 0x06 写成功后通过 `APP_COMM_EVENT_MODBUS_WRITE` 把寄存器和值送进 `system_model`，非法写地址不进入写命令快照。
+- UI 仍只在 `task_gui` 中读取 `app_system_model_get_snapshot()`，不直接调用 DSP/BMS/Modbus 协议解析接口。
+- 本 Step 不接真实 SPI/CAN/RS485，不修改 Boot/IAP/USB/SD 链路。
+
 ## 面试讲述方式
 
 建议这样讲：

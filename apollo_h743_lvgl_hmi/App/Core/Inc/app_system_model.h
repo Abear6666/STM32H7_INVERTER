@@ -44,9 +44,13 @@ typedef struct
 typedef struct
 {
     uint32_t request_count;
+    uint32_t write_count;
     uint32_t exception_count;
     uint32_t crc_error_count;
     uint32_t last_request_ms;
+    uint16_t last_write_reg;
+    uint16_t last_write_value;
+    uint32_t last_error_code;
 } app_modbus_snapshot_t;
 
 typedef struct

@@ -3031,3 +3031,59 @@ Phase 13 Step 6 已完成本地构建验证。
 本轮未实板烧录，未重新跑 USB/SD IAP 闭环；因为没有修改 Boot/IAP/分区/USB/SD/FatFs，按验证边界本地构建通过即可作为本 Step 的代码验收。
 下一步建议做 Step 7：把 HMI 首页或诊断页的通信状态显示再整理一轮，重点确认 DSP/BMS/Modbus 的 online、计数、异常和任务水位字段在屏幕上可读，并准备面试讲述稿。
 ```
+
+## 2026-06-28 Phase 13 Step 7 HMI 通信诊断显示整理
+
+目标：按 `Docs/phase13_comm_architecture_plan.md` 新增的 Step 7，把 Phase 13 的模拟通信闭环整理到 HMI 首页诊断显示中，让面试时能直接说明 `task_comm -> comm bus -> task_core -> system_model -> task_gui` 的数据流。本轮不接真实 SPI/CAN/RS485，不修改 Boot/IAP/USB/SD 链路。
+
+本轮修改：
+
+```text
+1. app_system_model.h/app_system_model.c 扩展 Modbus 快照。
+   - 增加 write_count。
+   - 增加 last_write_reg / last_write_value。
+   - 增加 last_error_code。
+
+2. app_modbus_rtu.c 修正 0x06 写命令事件路径。
+   - 读请求继续发布 APP_COMM_EVENT_MODBUS_REQUEST。
+   - 写请求只有在 app_modbus_map_write() 成功后才发布 APP_COMM_EVENT_MODBUS_WRITE。
+   - 非法写地址只进入异常路径，不进入写命令快照。
+   - 写事件携带寄存器地址和值，task_core 能完整写入 system_model。
+
+3. app_ui_hmi.c 整理首页通信摘要。
+   - DSP 显示 online、Vbus、Grid、Iout、Temp、run/warn/fault、fw、frame、ack、CRC/timeout。
+   - BMS 显示 online、SOC/SOH、电压、电流、温度、充放电限值、alarm/fault、frame、timeout。
+   - Modbus 显示 req/write/exception/CRC、最后一次写寄存器和值、最后错误类型。
+   - UI 仍只读取 app_system_model_get_snapshot()，不直接读取协议模块内部状态，也不直接调用协议解析接口。
+
+4. Docs/phase13_comm_architecture_plan.md 增加 Step 7 计划和验收标准。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 334952 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 316952 bytes / 512 KiB
+AppA slot image       = 335976 bytes
+AppA slot package CRC = 0x3C495828
+AppA body CRC32       = 0xAA9A9734
+
+AppB FLASH used       = 335600 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 316952 bytes / 512 KiB
+AppB slot image       = 336624 bytes
+AppB slot package CRC = 0x9E5F1BEC
+AppB body CRC32       = 0xDC6531E2
+```
+
+当前结论：
+
+```text
+Phase 13 Step 7 已完成本地构建验证。
+当前首页通信诊断已经能覆盖三条模拟链路的关键状态和异常计数，且 UI 仍保持只读 system_model 快照的边界。
+本轮未实板烧录，未肉眼确认屏幕排版，未重新跑 USB/SD IAP 闭环；后续上板时需要重点看首页文本是否完整可读、comm/core 栈水位是否正常、模拟计数是否随时间变化。
+下一步建议做 Step 8：整理一份 Phase 13 面试讲述稿，把 SPI-DSP、CAN-BMS、Modbus、FreeRTOS 任务解耦、队列/快照和后续替换真实硬件的路径讲成一套 3-5 分钟项目表达。
+```

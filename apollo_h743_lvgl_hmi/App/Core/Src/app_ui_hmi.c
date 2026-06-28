@@ -59,6 +59,8 @@ static void ui_update_params(void);
 static void ui_update_home(uint32_t now_ms);
 static void ui_update_upgrade(uint32_t now_ms);
 static void ui_update_log(void);
+static long ui_x10_whole(int32_t value);
+static long ui_x10_frac(int32_t value);
 
 void app_ui_hmi_create(void)
 {
@@ -399,18 +401,26 @@ static void ui_update_home(uint32_t now_ms)
                           (unsigned long)tasks.idle_stack_free_words);
 
     lv_label_set_text_fmt(s_home_values,
-                          "DSP: %s Vbus=%ld.%ld V Iout=%ld.%ld A Temp=%ld.%ld C frame=%lu ack=%lu err=%lu/%lu\n"
-                          "BMS: %s SOC=%lu.%lu%% Vbat=%ld.%ld V Ibat=%ld.%ld A frame=%lu timeout=%lu\n"
-                          "MODBUS: req=%lu exc=%lu crc=%lu\n"
+                          "DSP %s Vbus=%ld.%ld Grid=%ld.%ld Iout=%ld.%ld Temp=%ld.%ld\n"
+                          "  run=%u warn=0x%04X fault=0x%04X fw=0x%04X frame=%lu ack=%lu crc/to=%lu/%lu\n"
+                          "BMS %s SOC=%lu.%lu%% SOH=%lu.%lu%% V=%ld.%ld I=%ld.%ld Temp=%ld.%ld\n"
+                          "  limit chg/dsg=%lu.%lu/%lu.%lu A alarm=0x%04lX fault=0x%04lX frame=%lu to=%lu\n"
+                          "MODBUS req=%lu wr=%lu exc=%lu crc=%lu last_wr=0x%04X:%u err=%lu\n"
                           "Brightness: %lu%%   Threshold: %ld   Output: %s\n"
                           "Clock SYS/HCLK/LTDC/FMC: %lu/%lu/%lu/%lu MHz",
                           system.dsp.online ? "online" : "offline",
-                          (long)(system.dsp.bus_voltage_v_x10 / 10),
-                          (long)((system.dsp.bus_voltage_v_x10 < 0) ? -(system.dsp.bus_voltage_v_x10 % 10) : (system.dsp.bus_voltage_v_x10 % 10)),
-                          (long)(system.dsp.output_current_a_x10 / 10),
-                          (long)((system.dsp.output_current_a_x10 < 0) ? -(system.dsp.output_current_a_x10 % 10) : (system.dsp.output_current_a_x10 % 10)),
-                          (long)(system.dsp.temperature_c_x10 / 10),
-                          (long)((system.dsp.temperature_c_x10 < 0) ? -(system.dsp.temperature_c_x10 % 10) : (system.dsp.temperature_c_x10 % 10)),
+                          ui_x10_whole(system.dsp.bus_voltage_v_x10),
+                          ui_x10_frac(system.dsp.bus_voltage_v_x10),
+                          ui_x10_whole(system.dsp.grid_voltage_v_x10),
+                          ui_x10_frac(system.dsp.grid_voltage_v_x10),
+                          ui_x10_whole(system.dsp.output_current_a_x10),
+                          ui_x10_frac(system.dsp.output_current_a_x10),
+                          ui_x10_whole(system.dsp.temperature_c_x10),
+                          ui_x10_frac(system.dsp.temperature_c_x10),
+                          (unsigned int)system.dsp.run_state,
+                          (unsigned int)system.dsp.warn_code,
+                          (unsigned int)system.dsp.fault_code,
+                          (unsigned int)system.dsp.firmware_version,
                           (unsigned long)system.dsp.frame_count,
                           (unsigned long)system.dsp.ack_count,
                           (unsigned long)system.dsp.crc_error_count,
@@ -418,15 +428,29 @@ static void ui_update_home(uint32_t now_ms)
                           system.bms.online ? "online" : "offline",
                           (unsigned long)(system.bms.soc_percent_x10 / 10U),
                           (unsigned long)(system.bms.soc_percent_x10 % 10U),
-                          (long)(system.bms.pack_voltage_v_x10 / 10),
-                          (long)((system.bms.pack_voltage_v_x10 < 0) ? -(system.bms.pack_voltage_v_x10 % 10) : (system.bms.pack_voltage_v_x10 % 10)),
-                          (long)(system.bms.pack_current_a_x10 / 10),
-                          (long)((system.bms.pack_current_a_x10 < 0) ? -(system.bms.pack_current_a_x10 % 10) : (system.bms.pack_current_a_x10 % 10)),
+                          (unsigned long)(system.bms.soh_percent_x10 / 10U),
+                          (unsigned long)(system.bms.soh_percent_x10 % 10U),
+                          ui_x10_whole(system.bms.pack_voltage_v_x10),
+                          ui_x10_frac(system.bms.pack_voltage_v_x10),
+                          ui_x10_whole(system.bms.pack_current_a_x10),
+                          ui_x10_frac(system.bms.pack_current_a_x10),
+                          ui_x10_whole(system.bms.max_temp_c_x10),
+                          ui_x10_frac(system.bms.max_temp_c_x10),
+                          (unsigned long)(system.bms.charge_limit_a_x10 / 10U),
+                          (unsigned long)(system.bms.charge_limit_a_x10 % 10U),
+                          (unsigned long)(system.bms.discharge_limit_a_x10 / 10U),
+                          (unsigned long)(system.bms.discharge_limit_a_x10 % 10U),
+                          (unsigned long)(system.bms.alarm_flags & 0xFFFFUL),
+                          (unsigned long)(system.bms.fault_flags & 0xFFFFUL),
                           (unsigned long)system.bms.frame_count,
                           (unsigned long)system.bms.timeout_count,
                           (unsigned long)system.modbus.request_count,
+                          (unsigned long)system.modbus.write_count,
                           (unsigned long)system.modbus.exception_count,
                           (unsigned long)system.modbus.crc_error_count,
+                          (unsigned int)system.modbus.last_write_reg,
+                          (unsigned int)system.modbus.last_write_value,
+                          (unsigned long)system.modbus.last_error_code,
                           (unsigned long)settings.brightness,
                           (long)settings.threshold,
                           settings.output_enabled ? "ON" : "OFF",
@@ -434,6 +458,18 @@ static void ui_update_home(uint32_t now_ms)
                           (unsigned long)(clk.hclk_hz / 1000000UL),
                           (unsigned long)(clk.ltdc_pixel_hz / 1000000UL),
                           (unsigned long)(clk.fmc_kernel_hz / 1000000UL));
+}
+
+static long ui_x10_whole(int32_t value)
+{
+    return (long)(value / 10);
+}
+
+static long ui_x10_frac(int32_t value)
+{
+    int32_t frac = value % 10;
+
+    return (long)((frac < 0) ? -frac : frac);
 }
 
 static void ui_update_upgrade(uint32_t now_ms)
