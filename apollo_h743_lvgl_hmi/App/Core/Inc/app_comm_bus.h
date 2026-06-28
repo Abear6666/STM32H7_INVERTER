@@ -18,6 +18,14 @@ typedef enum
     APP_COMM_EVENT_MODBUS_ERROR,
 } app_comm_event_type_t;
 
+typedef enum
+{
+    APP_COMM_SOURCE_UNKNOWN = 0,
+    APP_COMM_SOURCE_DSP_LINK = 1,
+    APP_COMM_SOURCE_BMS_CAN = 2,
+    APP_COMM_SOURCE_MODBUS_RTU = 3,
+} app_comm_source_t;
+
 typedef struct
 {
     bool online;

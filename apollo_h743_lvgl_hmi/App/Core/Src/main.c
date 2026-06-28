@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "app_diag.h"
+#include "app_dsp_link.h"
 #include "app_log.h"
 #include "app_comm_bus.h"
 #include "app_iap.h"
@@ -105,6 +106,14 @@ int main(void)
     }
     app_system_model_init();
     app_log_event("Phase 13 system model ready");
+    if (app_dsp_link_init())
+    {
+        printf("Phase 13 DSP link init OK\r\n");
+    }
+    else
+    {
+        printf("Phase 13 DSP link init FAIL\r\n");
+    }
     app_settings_init();
 
     printf("Storage init start\r\n");

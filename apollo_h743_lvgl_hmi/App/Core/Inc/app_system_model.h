@@ -11,6 +11,7 @@ typedef struct
     bool online;
     uint32_t last_rx_ms;
     uint32_t frame_count;
+    uint32_t ack_count;
     uint32_t crc_error_count;
     uint32_t timeout_count;
     int16_t bus_voltage_v_x10;

@@ -43,6 +43,11 @@ void app_system_model_process_event(const app_comm_event_t *event)
         s_system_snapshot.dsp.firmware_version = event->data.dsp_status.firmware_version;
         break;
 
+    case APP_COMM_EVENT_DSP_ACK:
+        s_system_snapshot.dsp.ack_count++;
+        s_system_snapshot.dsp.last_rx_ms = event->timestamp_ms;
+        break;
+
     case APP_COMM_EVENT_DSP_TIMEOUT:
         s_system_snapshot.dsp.online = false;
         s_system_snapshot.dsp.timeout_count++;

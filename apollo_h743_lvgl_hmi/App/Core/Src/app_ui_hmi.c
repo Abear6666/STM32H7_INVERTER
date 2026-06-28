@@ -399,7 +399,7 @@ static void ui_update_home(uint32_t now_ms)
                           (unsigned long)tasks.idle_stack_free_words);
 
     lv_label_set_text_fmt(s_home_values,
-                          "DSP: %s Vbus=%ld.%ld V Iout=%ld.%ld A Temp=%ld.%ld C frame=%lu err=%lu/%lu\n"
+                          "DSP: %s Vbus=%ld.%ld V Iout=%ld.%ld A Temp=%ld.%ld C frame=%lu ack=%lu err=%lu/%lu\n"
                           "BMS: %s SOC=%lu.%lu%% Vbat=%ld.%ld V Ibat=%ld.%ld A frame=%lu timeout=%lu\n"
                           "MODBUS: req=%lu exc=%lu crc=%lu\n"
                           "Brightness: %lu%%   Threshold: %ld   Output: %s\n"
@@ -412,6 +412,7 @@ static void ui_update_home(uint32_t now_ms)
                           (long)(system.dsp.temperature_c_x10 / 10),
                           (long)((system.dsp.temperature_c_x10 < 0) ? -(system.dsp.temperature_c_x10 % 10) : (system.dsp.temperature_c_x10 % 10)),
                           (unsigned long)system.dsp.frame_count,
+                          (unsigned long)system.dsp.ack_count,
                           (unsigned long)system.dsp.crc_error_count,
                           (unsigned long)system.dsp.timeout_count,
                           system.bms.online ? "online" : "offline",

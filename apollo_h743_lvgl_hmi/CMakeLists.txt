@@ -200,6 +200,7 @@ set(APP_SOURCES
     ${APP_DIR}/Core/Src/app_critical.c
     ${APP_DIR}/Core/Src/app_comm_bus.c
     ${APP_DIR}/Core/Src/app_diag.c
+    ${APP_DIR}/Core/Src/app_dsp_link.c
     ${APP_DIR}/Core/Src/app_iap.c
     ${APP_DIR}/Core/Src/app_log.c
     ${APP_DIR}/Core/Src/app_sd.c

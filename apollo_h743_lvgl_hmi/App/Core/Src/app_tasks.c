@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "app_comm_bus.h"
+#include "app_dsp_link.h"
 #include "app_iap.h"
 #include "app_iap_record.h"
 #include "app_log.h"
@@ -168,7 +169,7 @@ static void task_storage(void *argument)
 static void task_log(void *argument)
 {
     TickType_t last_wake = xTaskGetTickCount();
-    uint32_t seconds = 0;
+    uint32_t tick_count = 0;
 
     (void)argument;
     printf("task_log started\r\n");
@@ -176,17 +177,24 @@ static void task_log(void *argument)
 
     while (1)
     {
-        app_led0_toggle();
-        app_tasks_process_comm_events(8U);
-        app_system_model_poll((uint32_t)HAL_GetTick());
-        seconds++;
+        uint32_t now = (uint32_t)HAL_GetTick();
 
-        if ((seconds % 5U) == 0U)
+        app_dsp_link_poll(now);
+        app_tasks_process_comm_events(8U);
+        app_system_model_poll(now);
+        tick_count++;
+
+        if ((tick_count % 10U) == 0U)
+        {
+            app_led0_toggle();
+        }
+
+        if ((tick_count % 50U) == 0U)
         {
             app_tasks_print_stack_watermarks();
         }
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(1000U));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(100U));
     }
 }
 
@@ -216,11 +224,13 @@ static void app_tasks_print_stack_watermarks(void)
     app_settings_snapshot_t settings;
     app_iap_status_t iap;
     app_task_runtime_status_t runtime;
+    app_dsp_link_diag_t dsp;
 
     app_storage_get_status(&storage);
     app_settings_get(&settings);
     app_iap_get_status(&iap);
     app_tasks_get_runtime_status(&runtime);
+    app_dsp_link_get_diag(&dsp);
 
     printf("stack watermark words: gui=%lu storage=%lu log=%lu iap=%lu comm=%lu core=%lu idle=%lu heap_free=%lu\r\n",
            (unsigned long)runtime.gui_stack_free_words,
@@ -262,4 +272,14 @@ static void app_tasks_print_stack_watermarks(void)
            (unsigned long)iap.boot_attempts,
            (unsigned long)iap.boot_max_attempts,
            (unsigned long)iap.boot_last_error);
+    printf("dsp link: online=%u rx=%lu valid=%lu crc_err=%lu invalid=%lu timeout=%lu cmd=%lu ack=%lu last_id=%u\r\n",
+           dsp.online ? 1U : 0U,
+           (unsigned long)dsp.rx_frame_count,
+           (unsigned long)dsp.valid_frame_count,
+           (unsigned long)dsp.crc_error_count,
+           (unsigned long)dsp.invalid_frame_count,
+           (unsigned long)dsp.timeout_count,
+           (unsigned long)dsp.command_tx_count,
+           (unsigned long)dsp.ack_count,
+           dsp.last_frame_id);
 }

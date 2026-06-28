@@ -2778,3 +2778,65 @@ Phase 13 Step 2 已完成本地构建验证。
 本轮未实板烧录，也未重新跑 USB/SD IAP 闭环。
 下一步建议实现 Step 3：app_dsp_link + 虚拟 DSP 帧生成，先让 DSP 状态通过 comm bus 进入 system model，再由 HMI 首页显示 online/数值/CRC/timeout。
 ```
+
+## 2026-06-28 Phase 13 Step 3 DSP 模拟链路
+
+目标：按 `Docs/phase13_comm_architecture_plan.md` 的 Step 3，新增 ARM-DSP 内部通信的纯软件模拟链路，不接真实 SPI，不占用 USART1/USB CDC，不修改 Boot/IAP/Flash 分区。
+
+本轮修改：
+
+```text
+1. 新增 app_dsp_link.c/app_dsp_link.h。
+   - 定义固定 20 字节 DSP 虚拟帧。
+   - 状态帧包含 Vbus、Vgrid、Iout、温度、run_state、warn、fault。
+   - 使用 CRC16(Modbus 多项式) 校验虚拟帧。
+   - 有效状态帧转换为 APP_COMM_EVENT_DSP_STATUS。
+   - CRC 错误帧丢弃，并发布 APP_COMM_EVENT_DSP_CRC_ERROR。
+   - 支持构造 ARM -> DSP 命令帧，并模拟 DSP ACK。
+   - 维护 rx/valid/crc_err/invalid/timeout/cmd/ack 诊断计数。
+
+2. app_comm_bus.h 增加事件 source 枚举。
+   - APP_COMM_SOURCE_DSP_LINK
+   - APP_COMM_SOURCE_BMS_CAN
+   - APP_COMM_SOURCE_MODBUS_RTU
+
+3. main.c 初始化 DSP link。
+
+4. app_tasks.c 临时在 task_log 中以 100ms 周期轮询 app_dsp_link_poll()。
+   - 第一版不新增正式 task_comm/task_core，避免提前进入 Step 6。
+   - task_log 继续消费 comm bus 事件并调用 app_system_model_process_event()。
+   - 周期日志新增 dsp link 诊断计数。
+
+5. app_system_model 增加 DSP ACK 计数。
+
+6. HMI 首页 DSP 行增加 ack 计数显示。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 328348 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 316808 bytes / 512 KiB
+AppA slot image       = 329372 bytes
+AppA slot package CRC = 0x5456EBEF
+AppA body CRC32       = 0x543FFDC1
+
+AppB FLASH used       = 328980 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 316808 bytes / 512 KiB
+AppB slot image       = 330004 bytes
+AppB slot package CRC = 0x62CE4EEB
+AppB body CRC32       = 0x6EB7A4CD
+```
+
+当前结论：
+
+```text
+Phase 13 Step 3 已完成本地构建验证。
+当前模拟 DSP 状态链路为：app_dsp_link_poll() -> APP_COMM_EVENT_DSP_STATUS/ACK/CRC_ERROR -> comm bus -> system model -> HMI 首页。
+本轮未接真实 SPI，未新增正式 task_comm/task_core，未实板烧录，也未重新跑 USB/SD IAP 闭环。
+下一步建议实现 Step 4：app_bms_can + 虚拟 CAN BMS 报文，先模拟 SOC、电压、电流、温度、限值、告警和 offline。
+```
