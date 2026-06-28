@@ -2840,3 +2840,58 @@ Phase 13 Step 3 已完成本地构建验证。
 本轮未接真实 SPI，未新增正式 task_comm/task_core，未实板烧录，也未重新跑 USB/SD IAP 闭环。
 下一步建议实现 Step 4：app_bms_can + 虚拟 CAN BMS 报文，先模拟 SOC、电压、电流、温度、限值、告警和 offline。
 ```
+
+## 2026-06-28 Phase 13 Step 4 BMS CAN 模拟链路
+
+目标：按 `Docs/phase13_comm_architecture_plan.md` 的 Step 4，新增 BMS CAN 纯软件模拟链路，不接真实 FDCAN/CAN 收发器，不修改 Boot/IAP/Flash 分区。
+
+本轮修改：
+
+```text
+1. 新增 app_bms_can.c/app_bms_can.h。
+   - 定义 app_can_frame_t，模拟标准 CAN 帧：id + dlc + data[8]。
+   - 使用 0x351 作为 BMS 状态帧，包含 SOC、SOH、pack voltage、pack current。
+   - 使用 0x355 作为 BMS 限值帧，包含 max temp、charge limit、discharge limit。
+   - 使用 0x359 作为 BMS 告警帧，包含 alarm_flags、fault_flags。
+   - 解析结果统一转换为 APP_COMM_EVENT_BMS_STATUS / LIMITS / ALARM。
+   - 支持掉线窗口，超时后发布 APP_COMM_EVENT_BMS_TIMEOUT。
+   - 维护 rx/status/limits/alarm/invalid/timeout/alarm_change/last_id 诊断计数。
+
+2. main.c 初始化 BMS CAN 模拟链路。
+
+3. app_tasks.c 临时在 task_log 中轮询 app_bms_can_poll()。
+   - 第一版仍不新增正式 task_comm/task_core。
+   - BMS 事件继续通过 comm bus 进入 system model。
+   - 周期日志新增 bms can 诊断计数。
+
+4. HMI 首页已通过 Step 2 的 system model 快照显示 BMS online、SOC、电压、电流、frame、timeout。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 330908 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 316888 bytes / 512 KiB
+AppA slot image       = 331932 bytes
+AppA slot package CRC = 0xFB35D5D3
+AppA body CRC32       = 0x835CB12D
+
+AppB FLASH used       = 331540 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 316888 bytes / 512 KiB
+AppB slot image       = 332564 bytes
+AppB slot package CRC = 0x623745B4
+AppB body CRC32       = 0x2437AAEF
+```
+
+当前结论：
+
+```text
+Phase 13 Step 4 已完成本地构建验证。
+当前模拟 BMS 链路为：app_bms_can_poll() -> APP_COMM_EVENT_BMS_STATUS/LIMITS/ALARM/TIMEOUT -> comm bus -> system model -> HMI 首页。
+本轮未接真实 CAN 硬件，未新增正式 task_comm/task_core，未实板烧录，也未重新跑 USB/SD IAP 闭环。
+下一步建议实现 Step 5：app_modbus_rtu + 寄存器映射，支持 0x03/0x04/0x06、CRC16、异常码和从 system model 读取 DSP/BMS 快照。
+```

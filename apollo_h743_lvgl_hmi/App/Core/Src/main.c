@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+#include "app_bms_can.h"
 #include "app_diag.h"
 #include "app_dsp_link.h"
 #include "app_log.h"
@@ -113,6 +114,14 @@ int main(void)
     else
     {
         printf("Phase 13 DSP link init FAIL\r\n");
+    }
+    if (app_bms_can_init())
+    {
+        printf("Phase 13 BMS CAN init OK\r\n");
+    }
+    else
+    {
+        printf("Phase 13 BMS CAN init FAIL\r\n");
     }
     app_settings_init();
 

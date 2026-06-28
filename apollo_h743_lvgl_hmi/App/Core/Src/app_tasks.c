@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "FreeRTOS.h"
+#include "app_bms_can.h"
 #include "app_comm_bus.h"
 #include "app_dsp_link.h"
 #include "app_iap.h"
@@ -180,6 +181,7 @@ static void task_log(void *argument)
         uint32_t now = (uint32_t)HAL_GetTick();
 
         app_dsp_link_poll(now);
+        app_bms_can_poll(now);
         app_tasks_process_comm_events(8U);
         app_system_model_poll(now);
         tick_count++;
@@ -225,12 +227,14 @@ static void app_tasks_print_stack_watermarks(void)
     app_iap_status_t iap;
     app_task_runtime_status_t runtime;
     app_dsp_link_diag_t dsp;
+    app_bms_can_diag_t bms;
 
     app_storage_get_status(&storage);
     app_settings_get(&settings);
     app_iap_get_status(&iap);
     app_tasks_get_runtime_status(&runtime);
     app_dsp_link_get_diag(&dsp);
+    app_bms_can_get_diag(&bms);
 
     printf("stack watermark words: gui=%lu storage=%lu log=%lu iap=%lu comm=%lu core=%lu idle=%lu heap_free=%lu\r\n",
            (unsigned long)runtime.gui_stack_free_words,
@@ -282,4 +286,14 @@ static void app_tasks_print_stack_watermarks(void)
            (unsigned long)dsp.command_tx_count,
            (unsigned long)dsp.ack_count,
            dsp.last_frame_id);
+    printf("bms can: online=%u rx=%lu status=%lu limits=%lu alarm=%lu invalid=%lu timeout=%lu alarm_change=%lu last_id=0x%03lX\r\n",
+           bms.online ? 1U : 0U,
+           (unsigned long)bms.rx_frame_count,
+           (unsigned long)bms.status_frame_count,
+           (unsigned long)bms.limits_frame_count,
+           (unsigned long)bms.alarm_frame_count,
+           (unsigned long)bms.invalid_frame_count,
+           (unsigned long)bms.timeout_count,
+           (unsigned long)bms.alarm_change_count,
+           (unsigned long)bms.last_can_id);
 }

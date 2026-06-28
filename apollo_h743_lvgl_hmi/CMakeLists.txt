@@ -197,6 +197,7 @@ set(APP_SOURCES
     ${APP_DIR}/Core/Src/sdram.c
     ${APP_DIR}/Core/Src/lcd.c
     ${APP_DIR}/Core/Src/touch.c
+    ${APP_DIR}/Core/Src/app_bms_can.c
     ${APP_DIR}/Core/Src/app_critical.c
     ${APP_DIR}/Core/Src/app_comm_bus.c
     ${APP_DIR}/Core/Src/app_diag.c
