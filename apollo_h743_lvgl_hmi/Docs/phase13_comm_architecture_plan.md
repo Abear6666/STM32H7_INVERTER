@@ -735,6 +735,22 @@ App/Core/Src/app_ui_hmi.c
 - UI 仍只在 `task_gui` 中读取 `app_system_model_get_snapshot()`，不直接调用 DSP/BMS/Modbus 协议解析接口。
 - 本 Step 不接真实 SPI/CAN/RS485，不修改 Boot/IAP/USB/SD 链路。
 
+### Step 8：整理 Phase 13 面试讲述稿
+
+计划新增：
+
+```text
+Docs/phase13_interview_script.md
+```
+
+验收：
+
+- 能用 90 秒讲清 Phase 13 的目标、三条通信链路和 RTOS 任务解耦。
+- 能用 3-5 分钟讲清 SPI-DSP、CAN-BMS、Modbus RTU、comm bus、system model、GUI snapshot 的完整数据流。
+- 明确区分“当前已完成软件模拟闭环”和“后续才接真实 SPI/CAN/RS485 硬件”，不要把学习项目包装成量产完成品。
+- 准备资深面试官追问答案：为什么不用全局变量、queue 长度是否够、为什么 ARM-DSP 不用 Modbus、为什么 UI 不直接读通信模块、后续真实硬件如何替换 transport。
+- 本 Step 只改文档，不改固件逻辑。
+
 ## 面试讲述方式
 
 建议这样讲：

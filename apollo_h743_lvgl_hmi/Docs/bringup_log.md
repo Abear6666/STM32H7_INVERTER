@@ -3087,3 +3087,38 @@ Phase 13 Step 7 已完成本地构建验证。
 本轮未实板烧录，未肉眼确认屏幕排版，未重新跑 USB/SD IAP 闭环；后续上板时需要重点看首页文本是否完整可读、comm/core 栈水位是否正常、模拟计数是否随时间变化。
 下一步建议做 Step 8：整理一份 Phase 13 面试讲述稿，把 SPI-DSP、CAN-BMS、Modbus、FreeRTOS 任务解耦、队列/快照和后续替换真实硬件的路径讲成一套 3-5 分钟项目表达。
 ```
+
+## 2026-06-28 Phase 13 Step 8 面试讲述稿整理
+
+目标：把 Phase 13 通信框架整理成可直接用于技术一面和项目深挖的讲述材料，重点讲清 SPI-DSP、CAN-BMS、Modbus RTU、FreeRTOS 任务解耦、comm bus、system model、GUI snapshot，以及后续替换真实硬件 transport 的路径。本轮只改文档，不改固件逻辑。
+
+本轮修改：
+
+```text
+1. 新增 Docs/phase13_interview_script.md。
+   - 提供一句话项目定位。
+   - 提供 90 秒版本。
+   - 提供 3-5 分钟版本。
+   - 分别整理 ARM-DSP、BMS CAN、Modbus RTU 的讲述方式。
+   - 整理资深面试官追问和回答边界。
+   - 明确哪些是当前软件模拟闭环，哪些是真实硬件后续接入项。
+
+2. 更新 Docs/phase13_comm_architecture_plan.md。
+   - 增加 Step 8：整理 Phase 13 面试讲述稿。
+   - 明确本 Step 只改文档，不改固件逻辑。
+```
+
+本地验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS, ninja: no work to do
+```
+
+当前结论：
+
+```text
+Phase 13 Step 8 已完成。
+当前 Phase 13 已经具备“代码闭环 + HMI 诊断 + 面试讲述稿”三部分材料：既能展示 task_comm/task_core/system_model 的实现，也能讲清楚为什么当前先做模拟、后续怎么替换真实 SPI/CAN/RS485。
+本轮未实板烧录，未重新跑 USB/SD IAP 闭环；因为只修改文档，按验证边界本地构建确认无代码重编即可。
+下一步建议不要继续堆模拟功能，优先把 Step 8 面试稿口述 2-3 遍；如继续开发，建议只选一个真实外设做小闭环，例如真实 CAN RX queue 或真实 RS485 Modbus RTU。
+```
