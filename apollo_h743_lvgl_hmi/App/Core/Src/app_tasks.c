@@ -9,6 +9,7 @@
 #include "app_iap.h"
 #include "app_iap_record.h"
 #include "app_log.h"
+#include "app_modbus_rtu.h"
 #include "app_settings.h"
 #include "app_storage.h"
 #include "app_system_model.h"
@@ -182,6 +183,7 @@ static void task_log(void *argument)
 
         app_dsp_link_poll(now);
         app_bms_can_poll(now);
+        app_modbus_rtu_poll(now);
         app_tasks_process_comm_events(8U);
         app_system_model_poll(now);
         tick_count++;
@@ -228,6 +230,7 @@ static void app_tasks_print_stack_watermarks(void)
     app_task_runtime_status_t runtime;
     app_dsp_link_diag_t dsp;
     app_bms_can_diag_t bms;
+    app_modbus_diag_t modbus;
 
     app_storage_get_status(&storage);
     app_settings_get(&settings);
@@ -235,6 +238,7 @@ static void app_tasks_print_stack_watermarks(void)
     app_tasks_get_runtime_status(&runtime);
     app_dsp_link_get_diag(&dsp);
     app_bms_can_get_diag(&bms);
+    app_modbus_get_diag(&modbus);
 
     printf("stack watermark words: gui=%lu storage=%lu log=%lu iap=%lu comm=%lu core=%lu idle=%lu heap_free=%lu\r\n",
            (unsigned long)runtime.gui_stack_free_words,
@@ -296,4 +300,14 @@ static void app_tasks_print_stack_watermarks(void)
            (unsigned long)bms.timeout_count,
            (unsigned long)bms.alarm_change_count,
            (unsigned long)bms.last_can_id);
+    printf("modbus: req=%lu resp=%lu exc=%lu crc=%lu write=%lu last_func=0x%02X reg=0x%04X value=%u last_exc=%u\r\n",
+           (unsigned long)modbus.request_count,
+           (unsigned long)modbus.response_count,
+           (unsigned long)modbus.exception_count,
+           (unsigned long)modbus.crc_error_count,
+           (unsigned long)modbus.write_count,
+           modbus.last_function,
+           modbus.last_reg,
+           modbus.last_value,
+           modbus.last_exception);
 }

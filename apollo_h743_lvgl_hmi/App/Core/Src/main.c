@@ -8,6 +8,7 @@
 #include "app_log.h"
 #include "app_comm_bus.h"
 #include "app_iap.h"
+#include "app_modbus_rtu.h"
 #include "app_settings.h"
 #include "app_storage.h"
 #include "app_system_model.h"
@@ -122,6 +123,14 @@ int main(void)
     else
     {
         printf("Phase 13 BMS CAN init FAIL\r\n");
+    }
+    if (app_modbus_rtu_init(1U))
+    {
+        printf("Phase 13 Modbus RTU init OK\r\n");
+    }
+    else
+    {
+        printf("Phase 13 Modbus RTU init FAIL\r\n");
     }
     app_settings_init();
 

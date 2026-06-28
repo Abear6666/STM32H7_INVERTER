@@ -79,12 +79,21 @@ void app_system_model_process_event(const app_comm_event_t *event)
         s_system_snapshot.bms.timeout_count++;
         break;
 
+    case APP_COMM_EVENT_MODBUS_REQUEST:
+        s_system_snapshot.modbus.request_count++;
+        s_system_snapshot.modbus.last_request_ms = event->timestamp_ms;
+        break;
+
     case APP_COMM_EVENT_MODBUS_WRITE:
         s_system_snapshot.modbus.request_count++;
         s_system_snapshot.modbus.last_request_ms = event->timestamp_ms;
         break;
 
     case APP_COMM_EVENT_MODBUS_ERROR:
+        if (event->data.error_code == APP_COMM_MODBUS_ERROR_CRC)
+        {
+            s_system_snapshot.modbus.crc_error_count++;
+        }
         s_system_snapshot.modbus.exception_count++;
         s_system_snapshot.modbus.last_request_ms = event->timestamp_ms;
         break;

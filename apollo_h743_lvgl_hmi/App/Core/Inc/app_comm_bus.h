@@ -14,6 +14,7 @@ typedef enum
     APP_COMM_EVENT_BMS_LIMITS,
     APP_COMM_EVENT_BMS_ALARM,
     APP_COMM_EVENT_BMS_TIMEOUT,
+    APP_COMM_EVENT_MODBUS_REQUEST,
     APP_COMM_EVENT_MODBUS_WRITE,
     APP_COMM_EVENT_MODBUS_ERROR,
 } app_comm_event_type_t;
@@ -25,6 +26,12 @@ typedef enum
     APP_COMM_SOURCE_BMS_CAN = 2,
     APP_COMM_SOURCE_MODBUS_RTU = 3,
 } app_comm_source_t;
+
+typedef enum
+{
+    APP_COMM_MODBUS_ERROR_CRC = 1,
+    APP_COMM_MODBUS_ERROR_EXCEPTION = 2,
+} app_comm_modbus_error_t;
 
 typedef struct
 {

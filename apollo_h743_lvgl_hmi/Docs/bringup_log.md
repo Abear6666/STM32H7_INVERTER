@@ -2895,3 +2895,65 @@ Phase 13 Step 4 已完成本地构建验证。
 本轮未接真实 CAN 硬件，未新增正式 task_comm/task_core，未实板烧录，也未重新跑 USB/SD IAP 闭环。
 下一步建议实现 Step 5：app_modbus_rtu + 寄存器映射，支持 0x03/0x04/0x06、CRC16、异常码和从 system model 读取 DSP/BMS 快照。
 ```
+
+## 2026-06-28 Phase 13 Step 5 Modbus RTU 模拟协议
+
+目标：按 `Docs/phase13_comm_architecture_plan.md` 的 Step 5，新增 Modbus RTU 纯软件模拟协议，不接真实 RS485，不占用 USART1/USB CDC，不修改 Boot/IAP/Flash 分区。
+
+本轮修改：
+
+```text
+1. 新增 app_modbus_rtu.c/app_modbus_rtu.h。
+   - 支持 0x03 Read Holding Registers。
+   - 支持 0x04 Read Input Registers。
+   - 支持 0x06 Write Single Register。
+   - 实现 Modbus RTU CRC16。
+   - 支持异常响应：0x01 Illegal Function、0x02 Illegal Data Address、0x03 Illegal Data Value。
+
+2. 寄存器映射读取 system model 快照。
+   - 0x0000-0x0007 映射 DSP online、Vbus、Vgrid、Iout、温度、状态、告警、故障。
+   - 0x0100-0x0109 映射 BMS online、SOC、SOH、电压、电流、温度、限值、告警、故障。
+   - 0x0200-0x0203 作为 ARM 命令/参数写寄存器。
+
+3. app_comm_bus 增加 APP_COMM_EVENT_MODBUS_REQUEST。
+   - 普通读请求发布 MODBUS_REQUEST。
+   - 0x06 写请求发布 MODBUS_WRITE。
+   - CRC 错误或异常发布 MODBUS_ERROR。
+
+4. app_system_model 增加 Modbus 请求/异常/CRC 统计。
+
+5. main.c 初始化 Modbus RTU 模拟协议，slave address = 1。
+
+6. app_tasks.c 临时在 task_log 中轮询 app_modbus_rtu_poll()。
+   - 虚拟请求覆盖读 DSP、读 BMS、写命令、非法地址、CRC 错误。
+   - 周期日志新增 modbus 诊断计数。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 334068 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 316928 bytes / 512 KiB
+AppA slot image       = 335092 bytes
+AppA slot package CRC = 0x731D99B7
+AppA body CRC32       = 0x46119F37
+
+AppB FLASH used       = 334716 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 316928 bytes / 512 KiB
+AppB slot image       = 335740 bytes
+AppB slot package CRC = 0x8B672E63
+AppB body CRC32       = 0xE60E0724
+```
+
+当前结论：
+
+```text
+Phase 13 Step 5 已完成本地构建验证。
+当前模拟 Modbus 链路为：app_modbus_rtu_poll() -> 解析虚拟 RTU 请求 -> 读写 system model 寄存器映射 -> 构造响应/异常 -> comm bus -> HMI 统计。
+本轮未接真实 RS485，未新增正式 task_comm/task_core，未实板烧录，也未重新跑 USB/SD IAP 闭环。
+下一步建议实现 Step 6：把当前临时 task_log 轮询迁移为正式 task_comm / task_core，补齐任务栈水位统计，并确认不影响 task_iap、USB CDC、SD IAP。
+```
