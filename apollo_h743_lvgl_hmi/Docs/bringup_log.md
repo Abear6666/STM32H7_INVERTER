@@ -2719,6 +2719,159 @@ AppB body CRC32       = 0x4582521D
 系统诊断底座已完成本地构建验证。
 本轮未重新下载到实板；下一次实板验证重点看串口 diag 日志、HMI 首页诊断字段、周期栈余量日志是否仍正常。
 ```
+
+## 2026-06-27 Phase 11 USB CDC / SD 卡 IAP 回归验证
+
+目标：在 SD 卡 `SD mount fail` / `SDMMC_ERROR_RX_OVERRUN` 修复后，重新执行完整回归，确认 Boot/AppA/AppB 烧录、USB CDC IAP、SD 卡 IAP、Boot 安装 AppB 和 AppB confirmed 均闭环。
+
+本轮代码状态：
+
+```text
+1. SDMMC 配置改为稳定优先：1-bit、APP_SD_CLOCK_DIV=80U、开启 SDMMC 硬件流控。
+2. HAL_SD_ReadBlocks / HAL_SD_WriteBlocks 轮询传输期间使用 vTaskSuspendAll() 暂停任务切换，但不关闭中断。
+3. app_sd.c 增加 SD init/read/write/timeout 诊断日志。
+4. diskio.c 增加 FatFs 底层 sector/count/error/state 诊断日志。
+5. app_sd.h 增加 app_sd_get_last_error() 和 app_sd_get_card_state()。
+```
+
+当前构建产物：
+
+```text
+cmake --build --preset gcc-debug                        PASS, ninja: no work to do
+
+Bootloader text+data = 47372 bytes
+AppA text+data       = 322900 bytes
+AppB text+data       = 323532 bytes
+AppA slot image      = 323932 bytes
+AppB slot image      = 324564 bytes
+
+AppB run address      = 0x08100400
+AppB version          = 2
+AppB body CRC32       = 0xBD293B71
+AppB slot package CRC = 0xAF740721
+```
+
+完整烧录：
+
+```text
+openocd -c "set DUAL_BANK 1" -f interface/stlink.cfg -f target/stm32h7x.cfg -c "transport select swd" -c "adapter speed 1000" -c "program build/gcc-debug/apollo_h743_bootloader.hex verify" -c "program build/gcc-debug/app_a_slot.hex verify" -c "program build/gcc-debug/app_b_slot.hex verify reset exit"
+
+Bootloader programming + verify    PASS
+AppA slot programming + verify     PASS
+AppB slot programming + verify     PASS
+```
+
+启动回归：
+
+```text
+BOOT IAP: no valid pending package
+BOOT IAP: boot state=confirmed active=1 trial=1 version=2 attempts=0/3 err=0
+BOOT IAP: confirmed AppB selected
+BOOT: selected slot=AppB
+BOOT: tag magic=0x41505447 size=64 run=0x08100400 app_size=323540 version=2 crc=0xBD293B71
+BOOT: AppB crc calc=0xBD293B71 expect=0xBD293B71
+BOOT: AppB valid, version=2
+APP: AppB start from 0x08100400 version=2
+IAP confirm: AppB already confirmed version=2
+diag: last_fault=none
+```
+
+SD 卡 IAP 回归：
+
+```text
+触发方式：COM3 USART1 发送 iap sd
+SD 卡：4GB FAT32，根目录 0:/app_b_slot.bin
+
+IAP SD: file staging requested: 0:/app_b_slot.bin
+SD: mounted at 0:, blocks=7744512 block_size=512 capacity=3781 MB
+IAP SD: file tag magic=0x41505447 run=0x08100400 app_size=323540 version=2 app_crc=0xBD293B71
+IAP SD: recv begin size=324564 crc=0x00000000 version=2
+IAP SD: file progress 324564/324564
+IAP SD: recv done size=324564 crc=0xAF740721
+IAP SD: package verified, pending flag set version=2 size=324564 crc=0xAF740721
+iap status: flash=1 pending=1 version=2 size=324564 crc=0xAF740721 recv=0 324564/324564 state=SD staged, pending set
+```
+
+复位后 Boot 安装 SD staged 包：
+
+```text
+BOOT IAP: pending magic=0x50414950 version=1 target=1 size=324564 app_ver=2 crc=0xAF740721 staging=0x01A02000
+BOOT IAP: staging crc calc=0xAF740721 expect=0xAF740721
+BOOT IAP: staged tag magic=0x41505447 size=64 run=0x08100400 app_size=323540 version=2 crc=0xBD293B71
+BOOT IAP: staged AppB package CRC OK, version=2 app_size=323540
+BOOT IAP: AppB erase OK sectors=8
+BOOT IAP: AppB program progress 324564/324564
+BOOT IAP: AppB flash readback OK bytes=324564
+BOOT IAP: AppB crc calc=0xBD293B71 expect=0xBD293B71
+BOOT IAP: pending flag cleared
+BOOT IAP: boot state written: trial AppB version=2 max_attempts=3
+BOOT IAP: AppB update applied and verified, trial pending, AppA untouched
+APP: AppB start from 0x08100400 version=2
+IAP confirm: AppB version=2 confirmed
+iap status: flash=1 pending=0 version=0 size=0 crc=0x00000000 recv=0 0/0 state=AppB confirmed
+```
+
+观察项：
+
+```text
+本轮 SD 安装后的第一次 Boot flash readback 出现一次单字节 mismatch，随后 retry recovered：
+BOOT IAP: verify mismatch at flash=0x0811D7A4 actual=0x98 expect=0x99 attempt=1
+BOOT IAP: verify retry recovered at flash=0x0811D600 attempt=2
+
+最终 readback、AppB CRC 和 confirmed 均通过。该现象由既有 Boot 稳态读回重试机制恢复，后续可作为重复升级/供电/Flash 读回稳定性观察项。
+```
+
+USB CDC 枚举和状态命令回归：
+
+```text
+Windows 串口列表：COM3、COM4
+COM4 = USB 串行设备 (COM4), USB\VID_0483&PID_5740&MI_00
+
+COM4 发送 iap status：
+IAP status: flash=1 pending=0 version=0 size=0 crc=0x00000000 recv=0 0/0 state=AppB confirmed
+IAP boot state: valid=1 state=confirmed active=1 trial=1 attempts=0/3 err=0
+```
+
+USB CDC IAP 完整传输回归：
+
+```text
+.\Tools\iap_serial_cli\bin\Release\net10.0-windows\ApolloIapSerialCli.exe --port COM4 --baud 115200 --file build\gcc-debug\app_b_slot.bin --version 2 --chunk 128 --delay-ms 2 --app-timeout-ms 30000 --ready-timeout-ms 10000 --log-tail-ms 8000 --no-wait-app
+
+file=build\gcc-debug\app_b_slot.bin size=324564 crc32=0xAF740721 version=2
+iap recv 324564 0xAF740721 2
+IAP USB: ready for binary size=324564
+sent=324564
+IAP USB: package verified, pending flag set version=2 size=324564 crc=0xAF740721
+发送完成: 324564/324564 100.0%
+```
+
+复位后 Boot 安装 USB staged 包：
+
+```text
+BOOT IAP: pending magic=0x50414950 version=1 target=1 size=324564 app_ver=2 crc=0xAF740721 staging=0x01A02000
+BOOT IAP: staging crc calc=0xAF740721 expect=0xAF740721
+BOOT IAP: staged AppB package CRC OK, version=2 app_size=323540
+BOOT IAP: AppB flash readback OK bytes=324564
+BOOT IAP: AppB crc calc=0xBD293B71 expect=0xBD293B71
+BOOT IAP: pending flag cleared
+BOOT IAP: boot state written: trial AppB version=2 max_attempts=3
+BOOT IAP: AppB update applied and verified, trial pending, AppA untouched
+APP: AppB start from 0x08100400 version=2
+IAP confirm: AppB version=2 confirmed
+iap status: flash=1 pending=0 version=0 size=0 crc=0x00000000 recv=0 0/0 state=AppB confirmed
+```
+
+本轮结论：
+
+```text
+1. Bootloader + AppA + AppB 完整烧录 verify OK。
+2. 当前实际运行槽位为 AppB，AppB tag CRC 与当前构建一致。
+3. USB CDC 枚举、iap status、完整 app_b_slot.bin 传输、pending、Boot 安装和 AppB confirmed 均通过。
+4. SD 卡 mount、文件读取、W25Q staging、pending、Boot 安装和 AppB confirmed 均通过。
+5. 此前 SD mount fail 根因确认是 SDMMC 轮询读 RX overrun，当前稳定性修复在 4GB FAT32 卡上通过。
+6. 后续建议继续做多卡、多次重复升级、断电场景、以及 SD DMA/中断模式优化评估。
+```
+
 ## 2026-06-28 Phase 13 Step 2 通信总线和系统状态模型
 
 目标：按 `Docs/phase13_comm_architecture_plan.md` 的 Step 2，先落地通信解耦基础设施，不接真实 DSP/CAN/Modbus 硬件，不改 Boot/IAP 分区。

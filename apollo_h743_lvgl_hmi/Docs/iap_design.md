@@ -152,15 +152,39 @@ USB 实例：USB2_OTG_FS
 
 注意不要把板载 `USB_UART` / CH340 的串口 `COM5` 当成 USB CDC 升级口。`USB_UART` 只连接 USART1，用于日志和串口 IAP；USB CDC 升级需要电脑额外枚举出一个新的虚拟 COM 口。
 
-当前实板状态：
+当前实板状态（2026-06-27 回归）：
 
 ```text
 AppB 已启动，USB CDC early init OK，IAP: USB CDC init OK。
-Windows 目前只看到 COM5，也就是 CH340 / USART1。
-串口日志未出现 USB CDC: connected 或 USB CDC: bus reset。
+Windows 已枚举 MCU USB CDC 虚拟串口：COM4，VID_0483&PID_5740。
+COM3 为板载 CH340 / USART1 调试串口。
+COM4 发送 iap status 可收到 USB 定向回包。
+USB CDC 使用 app_b_slot.bin 完成 324564 字节传输，pending 写入成功。
+复位后 Boot 安装 AppB，AppB 启动并 confirmed。
 ```
 
-这说明固件侧 USB CDC 入口已经接入，但主机还没有连接到 MCU 的 USB Device 控制器。下一次验证前先确认 USB_SLAVE/USB OTG 物理口、P9 CAN/USB 跳帽和 Type-C 数据线。
+USB CDC 当前结论：固件侧、枚举、协议回包、W25Q staging、pending、Boot 安装和 AppB confirmed 已完成实板闭环验证。
+
+### SD 卡实板状态
+
+2026-06-27 使用 4GB FAT32 SD 卡，根目录文件：
+
+```text
+0:/app_b_slot.bin
+```
+
+回归结果：
+
+```text
+SD: mounted at 0:, blocks=7744512 block_size=512 capacity=3781 MB
+IAP SD: file tag magic=0x41505447 run=0x08100400 app_size=323540 version=2 app_crc=0xBD293B71
+IAP SD: file progress 324564/324564
+IAP SD: package verified, pending flag set version=2 size=324564 crc=0xAF740721
+BOOT IAP: AppB update applied and verified, trial pending, AppA untouched
+IAP confirm: AppB version=2 confirmed
+```
+
+SD 卡当前结论：文件升级链路已完成实板闭环验证。此前 `SD mount fail` 的根因不是 FAT32 或文件名，而是底层 `HAL_SD_ReadBlocks()` 轮询读触发 `SDMMC_ERROR_RX_OVERRUN=0x00000020`。当前采用 1-bit、降低 SDCLK、开启 SDMMC 硬件流控，并在轮询块读写期间暂停 FreeRTOS 任务调度，已解决本卡实测问题。
 
 ## 安全边界
 
@@ -181,5 +205,7 @@ Windows 目前只看到 COM5，也就是 CH340 / USART1。
 后续继续增强前，需要补齐：
 
 - 断电安全写入策略。
-- USB CDC 实传验证，或后续 USB MSC 文件升级入口。
+- SD 卡多卡兼容和长时间重复升级测试。
+- SDMMC 后续可切换到 DMA/中断模式，减少对 CPU 轮询及时性的依赖。
 - SHA256 和签名校验。
+- USB CDC 工具可增加自动复位后状态查询，确认 AppB confirmed。

@@ -581,3 +581,42 @@ AppB FLASH used       = 320928 bytes / 1023 KiB
 AppB DTCMRAM used     = 96 bytes / 128 KiB
 AppB RAM_D1 used      = 316640 bytes / 512 KiB
 ```
+
+## 2026-06-27 IAP 回归后当前构建产物
+
+当前 GCC Debug 构建产物：
+
+```text
+build/gcc-debug/apollo_h743_bootloader.hex  Bootloader，烧录到 0x08000000
+build/gcc-debug/app_a_slot.hex              AppA 槽镜像，烧录到 0x08020000
+build/gcc-debug/app_b_slot.hex              AppB 槽镜像，烧录到 0x08100000
+build/gcc-debug/app_b_slot.bin              USB CDC / SD 卡 IAP 推荐升级包
+```
+
+当前静态尺寸：
+
+```text
+Bootloader text+data = 47372 bytes
+AppA text+data       = 322900 bytes
+AppB text+data       = 323532 bytes
+AppA slot image      = 323932 bytes
+AppB slot image      = 324564 bytes
+```
+
+当前 AppB 包实板验证信息：
+
+```text
+AppB run address      = 0x08100400
+AppB version          = 2
+AppB body CRC32       = 0xBD293B71
+AppB slot package CRC = 0xAF740721
+AppB slot package size= 324564 bytes
+```
+
+2026-06-27 已验证路径：
+
+```text
+完整烧录：Bootloader + AppA + AppB，OpenOCD verify OK
+SD IAP：0:/app_b_slot.bin -> W25Q staging -> pending -> Boot 安装 AppB -> AppB confirmed
+USB IAP：COM4 USB CDC -> W25Q staging -> pending -> Boot 安装 AppB -> AppB confirmed
+```

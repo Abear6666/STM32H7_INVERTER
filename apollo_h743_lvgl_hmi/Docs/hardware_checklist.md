@@ -128,16 +128,16 @@ LVGL 学习资料：
 | 外部 Flash 接口 | 已确认 | QSPI | Apollo V2 硬件参考手册 |
 | QSPI 引脚 | 已确认 | PB2 CLK、PB6 NCS、PF6 IO0、PF7 IO1、PF8 IO2、PF9 IO3 | 正点原子 Apollo H743 HAL `实验28 QSPI实验`，Phase 7-9 已实板识别 W25Q256 |
 | QSPI 内存映射基地址 | 部分确认 | CMSIS 定义 QSPI memory mapped 基址 `0x90000000`；当前阶段不启用 memory mapped | Phase 8 参数保存使用普通命令模式读/擦/写 |
-| SD 卡接口 | 待实板确认 | SDMMC1，4-bit，PC8 D0、PC9 D1、PC10 D2、PC11 D3、PC12 CLK、PD2 CMD，AF12 | 引脚来自正点原子 Apollo H743 HAL `实验41 SD卡实验` / `实验43 FATFS实验`；固件侧 Phase 11 已接入，等待插卡验证 |
-| SD 卡本地 IAP | 待实板确认 | SD 卡根目录放置 `app_b_slot.bin`，串口 `iap sd` 或升级页 `SD File` 触发，只读文件后写入 W25Q256 staging | 无卡、挂载失败、文件无效或 CRC 失败均不写 pending，不影响 AppA |
+| SD 卡接口 | 已实板确认 | SDMMC1，PC8 D0、PC9 D1、PC10 D2、PC11 D3、PC12 CLK、PD2 CMD，AF12；当前固件为稳定性使用 1-bit + 低速 + 硬件流控 | 4GB FAT32 SD 卡已完成 mount、文件读取和 IAP 闭环；原 4-bit/较高速轮询读曾触发 `SDMMC_ERROR_RX_OVERRUN=0x00000020` |
+| SD 卡本地 IAP | 已实板确认 | SD 卡根目录放置 `app_b_slot.bin`，串口 `iap sd` 或升级页 `SD File` 触发，只读文件后写入 W25Q256 staging | 2026-06-27 回归通过：读完 324564 字节 AppB 包，写 pending，复位后 Boot 安装 AppB 并 confirmed；无卡、挂载失败、文件无效或 CRC 失败均不写 pending，不影响 AppA |
 | EEPROM | 已确认 | 24C02，256B | Apollo V2 硬件参考手册 |
 | NAND Flash | 已确认存在 | 512MB | Apollo V2 硬件参考手册；第一版 LVGL bring-up 暂不使用 |
 | 串口日志端口 | 已确认方向 | USART1 引出为 TTL 串口，可用于通信和调试 | 仍需结合原理图和实物确认 USB 转串口接线 |
 | USB_UART / CH340 | 已确认 | 当前 Windows `COM5` 为板载 CH340 / USART1，只用于串口日志和串口 IAP | Apollo V2 硬件参考手册 2.1.33；不要把 COM5 当作 USB CDC |
-| USB_SLAVE / USB OTG | 待实板确认 | MCU USB Device 使用 USB2_OTG_FS，PA11=USB_D-，PA12=USB_D+，应连接 USB_SLAVE / USB OTG Type-C 口 | Apollo V2 硬件参考手册 2.1.12、2.2.10 |
-| CAN/USB 选择跳帽 | 待实板确认 | P9 必须选择 USB，使 PA11/PA12 连接 USB；若选择 CAN，USB CDC 不会枚举 | Apollo V2 硬件参考手册明确 PA11/PA12 在 CAN/USB 之间通过跳帽选择 |
-| USB CDC 实板枚举 | 未通过 | AppB 日志显示 `USB CDC early init OK` 和 `IAP: USB CDC init OK`，但 Windows 仅看到 `COM5`，未出现新 USB CDC COM，且未打印 `USB CDC: connected/bus reset` | 当前判断为 USB_SLAVE 物理口、P9 跳帽或 Type-C 数据线待确认 |
-| 系统诊断显示 | 已编译，待实板确认 | App 首页已增加 reset reason、Fault、heap、任务栈余量和关键时钟摘要；串口启动日志增加 `diag:` 行 | 2026-06-13 构建通过，下一次下载后观察 HMI 首页和 USART1 日志 |
+| USB_SLAVE / USB OTG | 已实板确认 | MCU USB Device 使用 USB2_OTG_FS，PA11=USB_D-，PA12=USB_D+，连接 USB_SLAVE / USB OTG Type-C 口 | 2026-06-27 Windows 已枚举 MCU USB CDC COM4，VID_0483&PID_5740 |
+| CAN/USB 选择跳帽 | 已实板确认 | P9 必须选择 USB，使 PA11/PA12 连接 USB；若选择 CAN，USB CDC 不会枚举 | 当前板卡已能枚举 USB CDC，说明实测连接路径有效；仍建议装配/交付时记录跳帽位置 |
+| USB CDC 实板枚举 | 已通过 | AppB 日志显示 `USB CDC early init OK` 和 `IAP: USB CDC init OK`，Windows 枚举 `USB 串行设备 (COM4)`，PNP 为 `USB\\VID_0483&PID_5740&MI_00` | COM4 `iap status` 回包正常；USB CDC 传输 324564 字节 AppB 包成功，复位后 Boot 安装 AppB 并 confirmed |
+| 系统诊断显示 | 串口已确认，HMI 待肉眼确认 | App 首页已增加 reset reason、Fault、heap、任务栈余量和关键时钟摘要；串口启动日志增加 `diag:` 行 | 2026-06-27 串口确认 `diag: boot_count`、`diag: last_fault=none`、任务栈和 heap 周期日志正常；HMI 首页字段仍建议肉眼确认 |
 | LED 引脚 | 已确认 | LED0/DS0 红灯：PB1；LED1/DS1 绿灯：PB0 | Apollo V2 硬件参考手册、例程 |
 | LED0 心跳 | 已确认 | LED0 每 500ms 翻转 | 用户已实物确认 |
 | 按键引脚 | 已确认 | KEY0 PH3、KEY1 PH2、KEY2 PC13、KEY_UP PA0；KEY0/1/2 低电平有效，KEY_UP 高电平有效 | Apollo V2 硬件参考手册、开发指南 |
