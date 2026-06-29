@@ -3391,3 +3391,78 @@ AppB body CRC32       = 0xDE9C34E7
 Phase 13 Step 9 已完成代码接入和本地构建验证，但真实 RS485 Modbus RTU 尚未实板闭环。
 本轮最重要的价值是：真实硬件 transport 已经和原有 Modbus 协议层/system_model/RTOS 任务解耦结构打通，后续实测只需围绕 P7 跳帽、A/B 接线、PCF8574 方向控制、USART2 收发和 Modbus 帧响应逐项验证。
 ```
+
+## 2026-06-30 Phase 13 Step 9 真实 RS485 Modbus RTU 实板闭环
+
+目标：在用户已将 P7 跳帽插到 RS485 位、USB-RS485 转换器接入电脑后，验证 Step 9 的真实 RS485 Modbus RTU 链路是否可用。
+
+硬件和端口状态：
+
+```text
+P7 跳帽：已按照片确认，PA2/PA3 接到 485_RX/485_TX。
+板载 USART1 日志口：COM3，USB-SERIAL CH340。
+MCU USB CDC：COM4，VID_0483&PID_5740。
+USB-RS485 转换器：COM6，USB-SERIAL CH340。
+RS485 参数：9600, 8N1, slave id 1。
+```
+
+本轮先完整烧录最新构建：
+
+```text
+openocd -c "set DUAL_BANK 1" -f interface/stlink.cfg -f target/stm32h7x.cfg -c "transport select swd" -c "adapter speed 1000" -c "program build/gcc-debug/apollo_h743_bootloader.hex verify" -c "program build/gcc-debug/app_a_slot.hex verify" -c "program build/gcc-debug/app_b_slot.hex verify reset exit"
+
+结果：Bootloader / AppA / AppB program + verify 均 OK。
+```
+
+USB CDC 状态确认：
+
+```text
+COM4 发送 iap status：
+IAP status: flash=1 pending=0 version=0 size=0 crc=0x00000000 recv=0 0/0 state=IAP idle
+IAP boot state: valid=1 state=confirmed active=1 trial=1 attempts=0/3 err=0
+```
+
+USART1 日志确认：
+
+```text
+rs485 modbus: ready=1 rx_bytes=0 rx_frames=0 tx_frames=0 overflow=0 short=0 tx_err=0 last_rx=0 last_tx=0
+```
+
+COM6 真实 RS485 Modbus 测试：
+
+```text
+1. 读 DSP holding registers 0x0000 长度 8
+TX: 01 03 00 00 00 08 44 0c
+RX: 01 03 10 00 01 0e e3 08 99 00 85 01 3d 00 01 00 00 00 00 2d 2d
+解析：online=1, Vbus=381.1V, Vgrid=220.1V, Iout=13.3A, Temp=31.7C, run=1, warn=0, fault=0
+
+2. 读 BMS holding registers 0x0100 长度 10
+TX: 01 03 01 00 00 0a c4 31
+RX: 01 03 14 00 01 03 04 03 d9 14 16 ff e8 01 22 01 f4 02 58 00 00 00 00 f9 09
+解析：online=1, SOC=77.2%, SOH=98.5%, Vbat=514.2V, Ibat=-2.4A, Temp=29.0C, ChgLimit=50.0A, DsgLimit=60.0A
+
+3. 写 ARM command holding register 0x0201 = 500
+TX: 01 06 02 01 01 f4 d9 a5
+RX: 01 06 02 01 01 f4 d9 a5
+解析：写单寄存器回显正确。
+
+4. 读非法地址 0x0300 长度 2
+TX: 01 03 03 00 00 02 c4 4f
+RX: 01 83 02 c0 f1
+解析：异常码 0x02 Illegal Data Address，符合预期。
+```
+
+测试后日志计数：
+
+```text
+modbus: req=4 resp=4 exc=1 crc=0 write=1 last_func=0x03 reg=0x0300 value=0 last_exc=2
+rs485 modbus: ready=1 rx_bytes=32 rx_frames=4 tx_frames=4 overflow=0 short=0 tx_err=0 last_rx=74971 last_tx=75060
+```
+
+当前结论：
+
+```text
+真实 RS485 Modbus RTU 第一版闭环通过。
+已验证：USART2 PA2/PA3、P7 RS485 跳帽、PCF8574 P6 方向控制、TPT8485 半双工收发、Modbus CRC、0x03 读、0x06 写、非法地址异常响应、诊断计数。
+当前仍是单从站地址 1，波特率固定 9600；后续如要扩展，可做 slave id 参数化、多逻辑地址表、或 Modbus master 轮询表。
+```
