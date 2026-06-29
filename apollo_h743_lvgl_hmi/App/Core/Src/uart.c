@@ -16,8 +16,10 @@
 #define UART1_RX_RING_SIZE 2048U
 
 UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart2;
 
 static uint8_t s_uart1_rx_byte;
+static uint8_t s_uart2_rx_byte;
 static volatile uint8_t s_uart1_rx_ring[UART1_RX_RING_SIZE];
 static volatile uint16_t s_uart1_rx_head;
 static volatile uint16_t s_uart1_rx_tail;
@@ -26,6 +28,7 @@ static SemaphoreHandle_t s_uart_tx_mutex;
 #endif
 
 static void app_uart1_rx_rearm(void);
+static void app_uart2_rx_rearm(void);
 
 void app_uart1_init(uint32_t baudrate)
 {
@@ -102,27 +105,88 @@ bool app_uart1_rx_read_byte(uint8_t *byte)
     return true;
 }
 
+void app_uart2_init(uint32_t baudrate)
+{
+    huart2.Instance = USART2;
+    huart2.Init.BaudRate = baudrate;
+    huart2.Init.WordLength = UART_WORDLENGTH_8B;
+    huart2.Init.StopBits = UART_STOPBITS_1;
+    huart2.Init.Parity = UART_PARITY_NONE;
+    huart2.Init.Mode = UART_MODE_TX_RX;
+    huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+    huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+    huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+    huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+
+    if (HAL_UART_Init(&huart2) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+void app_uart2_rx_start_it(void)
+{
+    app_uart2_rx_rearm();
+}
+
+__attribute__((weak)) void app_uart2_rx_on_byte_from_isr(uint8_t byte)
+{
+    (void)byte;
+}
+
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 {
     GPIO_InitTypeDef gpio = {0};
 
-    if (huart->Instance != USART1)
+    if (huart->Instance == USART1)
     {
+        __HAL_RCC_USART1_CLK_ENABLE();
+        __HAL_RCC_GPIOA_CLK_ENABLE();
+
+        gpio.Pin = GPIO_PIN_9 | GPIO_PIN_10;
+        gpio.Mode = GPIO_MODE_AF_PP;
+        gpio.Pull = GPIO_PULLUP;
+        gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+        gpio.Alternate = GPIO_AF7_USART1;
+        HAL_GPIO_Init(GPIOA, &gpio);
+
+        HAL_NVIC_SetPriority(USART1_IRQn, 3, 3);
+        HAL_NVIC_EnableIRQ(USART1_IRQn);
         return;
     }
 
-    __HAL_RCC_USART1_CLK_ENABLE();
-    __HAL_RCC_GPIOA_CLK_ENABLE();
+    if (huart->Instance == USART2)
+    {
+        __HAL_RCC_USART2_CLK_ENABLE();
+        __HAL_RCC_GPIOA_CLK_ENABLE();
 
-    gpio.Pin = GPIO_PIN_9 | GPIO_PIN_10;
-    gpio.Mode = GPIO_MODE_AF_PP;
-    gpio.Pull = GPIO_PULLUP;
-    gpio.Speed = GPIO_SPEED_FREQ_HIGH;
-    gpio.Alternate = GPIO_AF7_USART1;
-    HAL_GPIO_Init(GPIOA, &gpio);
+        gpio.Pin = GPIO_PIN_2 | GPIO_PIN_3;
+        gpio.Mode = GPIO_MODE_AF_PP;
+        gpio.Pull = GPIO_PULLUP;
+        gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+        gpio.Alternate = GPIO_AF7_USART2;
+        HAL_GPIO_Init(GPIOA, &gpio);
 
-    HAL_NVIC_SetPriority(USART1_IRQn, 3, 3);
-    HAL_NVIC_EnableIRQ(USART1_IRQn);
+        HAL_NVIC_SetPriority(USART2_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(USART2_IRQn);
+        return;
+    }
 }
 
 void USART1_IRQHandler(void)
@@ -130,23 +194,33 @@ void USART1_IRQHandler(void)
     HAL_UART_IRQHandler(&huart1);
 }
 
+void USART2_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart2);
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     uint16_t next;
 
-    if (huart->Instance != USART1)
+    if (huart->Instance == USART1)
     {
+        next = (uint16_t)((s_uart1_rx_head + 1U) % UART1_RX_RING_SIZE);
+        if (next != s_uart1_rx_tail)
+        {
+            s_uart1_rx_ring[s_uart1_rx_head] = s_uart1_rx_byte;
+            s_uart1_rx_head = next;
+        }
+
+        app_uart1_rx_rearm();
         return;
     }
 
-    next = (uint16_t)((s_uart1_rx_head + 1U) % UART1_RX_RING_SIZE);
-    if (next != s_uart1_rx_tail)
+    if (huart->Instance == USART2)
     {
-        s_uart1_rx_ring[s_uart1_rx_head] = s_uart1_rx_byte;
-        s_uart1_rx_head = next;
+        app_uart2_rx_on_byte_from_isr(s_uart2_rx_byte);
+        app_uart2_rx_rearm();
     }
-
-    app_uart1_rx_rearm();
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
@@ -154,6 +228,10 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     if (huart->Instance == USART1)
     {
         app_uart1_rx_rearm();
+    }
+    else if (huart->Instance == USART2)
+    {
+        app_uart2_rx_rearm();
     }
 }
 
@@ -203,4 +281,9 @@ int _write(int file, char *ptr, int len)
 static void app_uart1_rx_rearm(void)
 {
     (void)HAL_UART_Receive_IT(&huart1, &s_uart1_rx_byte, 1);
+}
+
+static void app_uart2_rx_rearm(void)
+{
+    (void)HAL_UART_Receive_IT(&huart2, &s_uart2_rx_byte, 1);
 }

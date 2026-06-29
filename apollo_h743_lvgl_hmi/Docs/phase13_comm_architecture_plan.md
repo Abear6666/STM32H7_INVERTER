@@ -751,6 +751,73 @@ Docs/phase13_interview_script.md
 - 准备资深面试官追问答案：为什么不用全局变量、queue 长度是否够、为什么 ARM-DSP 不用 Modbus、为什么 UI 不直接读通信模块、后续真实硬件如何替换 transport。
 - 本 Step 只改文档，不改固件逻辑。
 
+### Step 9：接入板载真实 RS485 Modbus RTU
+
+计划新增：
+
+```text
+App/Core/Inc/app_io_expander.h
+App/Core/Src/app_io_expander.c
+App/Core/Inc/app_rs485_modbus.h
+App/Core/Src/app_rs485_modbus.c
+```
+
+计划修改：
+
+```text
+App/Core/Inc/uart.h
+App/Core/Src/uart.c
+App/Core/Inc/app_modbus_rtu.h
+App/Core/Src/app_modbus_rtu.c
+App/Core/Src/main.c
+App/Core/Src/app_tasks.c
+CMakeLists.txt
+Docs/hardware_checklist.md
+Docs/bringup_log.md
+```
+
+硬件事实：
+
+```text
+板载 RS485 收发器：U9 TPT8485
+UART：USART2
+MCU TX：PA2 / USART2_TX，经 P7 接 RS485_RX / TPT8485 DI
+MCU RX：PA3 / USART2_RX，经 P7 接 RS485_TX / TPT8485 RO
+方向控制：RS485_RE -> PCF8574T U11 P6 -> TPT8485 /RE 和 DE
+PCF8574 I2C：PH4=SCL，PH5=SDA，7-bit 地址 0x20
+跳帽：P7 必须插到 RS485 位置，否则 USART2 会接到 RS232 COM2 路径
+```
+
+设计边界：
+
+- 不重写 `app_modbus_rtu` 协议层，只新增 transport。
+- `app_modbus_rtu_process_frame()` 统一处理真实帧和虚拟帧，复用 CRC、异常码、寄存器映射和 `system_model` 事件通路。
+- `app_rs485_modbus` 只负责 USART2 收发、RTU 帧间隔、半双工方向控制和诊断计数。
+- `app_io_expander` 只封装 PCF8574 写输出；默认 shadow 为 `0xFF`，仅控制 P6，避免误拉低其它扩展 IO。
+- USART1/CH340 继续保留为日志和串口 IAP，不作为 RS485 Modbus。
+- 如果 PCF8574 初始化失败或未检测到板载 IO 扩展器，固件保留原来的虚拟 Modbus 模拟，不阻断主系统启动。
+
+第一版参数：
+
+```text
+从站地址：1
+串口参数：9600, 8N1
+RTU 帧切分：约 3.5 字符静默时间，第一版用 5ms 保守阈值
+支持功能码：0x03、0x04、0x06
+```
+
+验收：
+
+- 本地 `cmake --build --preset gcc-debug` 通过。
+- 串口日志出现 `Phase 13 RS485 Modbus init OK` 或明确 skipped 原因。
+- P7 插到 RS485 位后，用 USB-RS485 转换器连接板载 RS485 A/B。
+- PC 作为 Modbus master，MCU 作为 slave，9600 8N1，slave id 1。
+- 读 Holding `0x0000-0x0007` 能读到 DSP 快照。
+- 读 Input/Holding `0x0100-0x0109` 能读到 BMS 快照。
+- 写 Holding `0x0201` 能更新 Modbus 写命令计数，并通过 `APP_COMM_EVENT_MODBUS_WRITE` 进入 `system_model`。
+- 非法地址返回 Modbus 异常响应，CRC 错误不回包但增加 crc 错误计数。
+- 周期日志能看到 `rs485 modbus: ready/rx_bytes/rx_frames/tx_frames/overflow/short/tx_err`。
+
 ## 面试讲述方式
 
 建议这样讲：

@@ -194,6 +194,62 @@ bool app_modbus_rtu_build_response(const app_modbus_request_t *request,
     return true;
 }
 
+bool app_modbus_rtu_process_frame(const uint8_t *rx,
+                                  uint32_t rx_len,
+                                  uint8_t *tx,
+                                  uint32_t tx_size,
+                                  uint32_t *tx_len,
+                                  uint32_t now_ms)
+{
+    app_modbus_request_t request;
+    uint16_t received_crc;
+    uint16_t calculated_crc;
+
+    if (tx_len != NULL)
+    {
+        *tx_len = 0U;
+    }
+
+    if ((rx == NULL) || (tx == NULL) || (tx_len == NULL))
+    {
+        return false;
+    }
+
+    if (rx_len < 8U)
+    {
+        return false;
+    }
+
+    received_crc = (uint16_t)(((uint16_t)rx[rx_len - 1U] << 8U) | rx[rx_len - 2U]);
+    calculated_crc = app_modbus_crc16(rx, rx_len - 2U);
+    if (received_crc != calculated_crc)
+    {
+        app_modbus_note_crc_error(now_ms);
+        return false;
+    }
+
+    if (rx[0] != s_slave_addr)
+    {
+        return false;
+    }
+
+    if (app_modbus_rtu_parse_request(rx, rx_len, &request))
+    {
+        request.timestamp_ms = now_ms;
+        app_modbus_note_request(&request, now_ms);
+        return app_modbus_rtu_build_response(&request, tx, tx_size, tx_len);
+    }
+
+    if (request.exception != APP_MODBUS_EXCEPTION_NONE)
+    {
+        request.timestamp_ms = now_ms;
+        app_modbus_note_exception(request.exception, now_ms);
+        return app_modbus_rtu_build_response(&request, tx, tx_size, tx_len);
+    }
+
+    return false;
+}
+
 bool app_modbus_map_read(uint16_t reg, uint16_t *value)
 {
     app_system_snapshot_t snapshot;
@@ -303,7 +359,6 @@ void app_modbus_rtu_poll(uint32_t now_ms)
     uint8_t tx[APP_MODBUS_MAX_FRAME_BYTES];
     uint32_t rx_len = 0U;
     uint32_t tx_len = 0U;
-    app_modbus_request_t request;
 
     if ((int32_t)(now_ms - s_next_poll_ms) < 0)
     {
@@ -330,24 +385,7 @@ void app_modbus_rtu_poll(uint32_t now_ms)
         break;
     }
 
-    if (app_modbus_rtu_parse_request(rx, rx_len, &request))
-    {
-        request.timestamp_ms = now_ms;
-        app_modbus_note_request(&request, now_ms);
-        (void)app_modbus_rtu_build_response(&request, tx, sizeof(tx), &tx_len);
-        (void)tx_len;
-    }
-    else
-    {
-        if (request.exception == APP_MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE)
-        {
-            app_modbus_note_crc_error(now_ms);
-        }
-        else
-        {
-            app_modbus_note_exception(request.exception, now_ms);
-        }
-    }
+    (void)app_modbus_rtu_process_frame(rx, rx_len, tx, sizeof(tx), &tx_len, now_ms);
 
     s_next_poll_ms = now_ms + APP_MODBUS_POLL_PERIOD_MS;
 }

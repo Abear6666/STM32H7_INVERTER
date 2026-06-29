@@ -3275,3 +3275,119 @@ Phase 13 Step 8 已完成。
 本轮未实板烧录，未重新跑 USB/SD IAP 闭环；因为只修改文档，按验证边界本地构建确认无代码重编即可。
 下一步建议不要继续堆模拟功能，优先把 Step 8 面试稿口述 2-3 遍；如继续开发，建议只选一个真实外设做小闭环，例如真实 CAN RX queue 或真实 RS485 Modbus RTU。
 ```
+
+## 2026-06-29 Phase 13 Step 9 真实 RS485 Modbus RTU 代码接入
+
+目标：在不修改 Boot/IAP/USB/SD 链路的前提下，把 Step 5 已完成的 Modbus RTU 协议层接到板载真实 RS485 硬件，为后续 USB-RS485 实板闭环做准备。用户当前不在板旁，P7 跳帽和 USB-RS485 接线未实测，因此本轮只完成代码接入、本地构建和文档记录。
+
+硬件确认：
+
+```text
+板载 RS485 收发器：U9 TPT8485
+UART：USART2
+PA2 = USART2_TX，经 P7 连接 RS485_RX / TPT8485 DI
+PA3 = USART2_RX，经 P7 连接 RS485_TX / TPT8485 RO
+方向控制：RS485_RE 同时接 TPT8485 /RE 和 DE
+RS485_RE 来源：U11 PCF8574T P6
+PCF8574 软件 I2C：PH4=SCL，PH5=SDA，7-bit 地址 0x20
+P7 必须插到 RS485 位置，否则 USART2 仍会走 RS232 COM2 路径
+```
+
+本轮修改：
+
+```text
+1. app_modbus_rtu.h/app_modbus_rtu.c
+   - 新增 app_modbus_rtu_process_frame()。
+   - 真实 transport 和原虚拟轮询共用同一套 CRC、异常码、寄存器映射、事件发布路径。
+   - CRC 错误静默不回包但记录 crc_error。
+   - 非法功能码/非法地址/非法值返回 Modbus 异常响应。
+   - 非本机 slave id 静默忽略。
+
+2. uart.h/uart.c
+   - 增加 USART2 初始化，PA2/PA3 配置为 AF7。
+   - 增加 USART2 IRQ 和单字节接收重装。
+   - USART2 收到字节后通过 weak callback 交给 RS485 transport。
+   - USART1 日志/串口 IAP 路径保持不变。
+
+3. 新增 app_io_expander.h/app_io_expander.c
+   - 使用 PH4/PH5 软件 I2C 写 PCF8574。
+   - 默认 shadow 为 0xFF，只控制 P6 作为 RS485_RE。
+   - 初始化时把 RS485 置为接收模式。
+
+4. 新增 app_rs485_modbus.h/app_rs485_modbus.c
+   - 默认 9600 8N1，slave id 沿用 app_modbus_rtu_init(1)。
+   - USART2 中断收字节进入 ring buffer。
+   - task_comm 中按 5ms RTU 帧间隔切帧。
+   - 收到完整帧后调用 app_modbus_rtu_process_frame()。
+   - 发送响应前置 RS485_RE=1，等待 TC 后置回 RS485_RE=0。
+   - 增加 ready/rx_bytes/rx_frames/tx_frames/overflow/short/tx_err 诊断。
+
+5. main.c/app_tasks.c/CMakeLists.txt
+   - App 初始化阶段尝试初始化真实 RS485 Modbus。
+   - 初始化成功时 task_comm 跑真实 RS485 transport。
+   - 初始化失败时保留原虚拟 Modbus 模拟，不阻断系统启动。
+   - task_comm 周期从 100ms 调整为 10ms，以满足真实 Modbus 响应时效。
+
+6. Docs/hardware_checklist.md 和 Docs/phase13_comm_architecture_plan.md
+   - 记录板载 RS485 UART、方向控制、P7 跳帽和 Step 9 验收标准。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug                        PASS
+
+AppA FLASH used       = 338084 bytes / 895 KiB
+AppA DTCMRAM used     = 96 bytes / 128 KiB
+AppA RAM_D1 used      = 317272 bytes / 512 KiB
+AppA slot image       = 339108 bytes
+AppA body CRC32       = 0xB4D875EE
+
+AppB FLASH used       = 338732 bytes / 1023 KiB
+AppB DTCMRAM used     = 96 bytes / 128 KiB
+AppB RAM_D1 used      = 317272 bytes / 512 KiB
+AppB slot image       = 339756 bytes
+AppB body CRC32       = 0xDE9C34E7
+```
+
+未完成实板项：
+
+```text
+1. 未确认 P7 是否已插到 RS485 位置。
+2. 未连接 USB-RS485 转换器。
+3. 未下载新固件到板子。
+4. 未用 PC Modbus master 读取/写入寄存器。
+5. 未观察串口日志中的 rs485 modbus 诊断计数。
+6. 未重新跑 USB/SD IAP 闭环；本轮未修改 Boot/IAP/USB/SD/FatFs 分区边界。
+```
+
+回家后的实板测试建议：
+
+```text
+1. 先确认 P7 跳帽插到 RS485 位置。
+2. USB-RS485 转换器 A/B 接板载 RS485 A/B；如无响应，先尝试交换 A/B。
+3. 烧录 AppB 或完整 Bootloader + AppA + AppB，确认当前实际运行槽位。
+4. 用 CH340/USART1 看日志，确认：
+   - Phase 13 RS485 Modbus init OK
+   - rs485 modbus: ready=1
+5. PC 端 Modbus master 配置：
+   - 9600 baud
+   - 8N1
+   - Slave ID = 1
+   - Function 0x03 读 Holding 0x0000 长度 8
+   - Function 0x04 或 0x03 读 0x0100 长度 10
+   - Function 0x06 写 0x0201 = 500
+6. 观察日志：
+   - rx_bytes/rx_frames 增加
+   - tx_frames 增加
+   - modbus req/resp/write 增加
+   - 非法地址时 exception 增加
+   - CRC 错误时 crc 增加且不回包
+```
+
+当前结论：
+
+```text
+Phase 13 Step 9 已完成代码接入和本地构建验证，但真实 RS485 Modbus RTU 尚未实板闭环。
+本轮最重要的价值是：真实硬件 transport 已经和原有 Modbus 协议层/system_model/RTOS 任务解耦结构打通，后续实测只需围绕 P7 跳帽、A/B 接线、PCF8574 方向控制、USART2 收发和 Modbus 帧响应逐项验证。
+```

@@ -45,6 +45,12 @@ bool app_modbus_rtu_build_response(const app_modbus_request_t *request,
                                    uint8_t *tx,
                                    uint32_t tx_size,
                                    uint32_t *tx_len);
+bool app_modbus_rtu_process_frame(const uint8_t *rx,
+                                  uint32_t rx_len,
+                                  uint8_t *tx,
+                                  uint32_t tx_size,
+                                  uint32_t *tx_len,
+                                  uint32_t now_ms);
 bool app_modbus_map_read(uint16_t reg, uint16_t *value);
 bool app_modbus_map_write(uint16_t reg, uint16_t value);
 void app_modbus_rtu_poll(uint32_t now_ms);

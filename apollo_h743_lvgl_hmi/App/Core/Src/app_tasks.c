@@ -10,6 +10,7 @@
 #include "app_iap_record.h"
 #include "app_log.h"
 #include "app_modbus_rtu.h"
+#include "app_rs485_modbus.h"
 #include "app_settings.h"
 #include "app_storage.h"
 #include "app_system_model.h"
@@ -233,9 +234,16 @@ static void task_comm(void *argument)
 
         app_dsp_link_poll(now);
         app_bms_can_poll(now);
-        app_modbus_rtu_poll(now);
+        if (app_rs485_modbus_is_ready())
+        {
+            app_rs485_modbus_poll(now);
+        }
+        else
+        {
+            app_modbus_rtu_poll(now);
+        }
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(100U));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10U));
     }
 }
 
@@ -282,6 +290,7 @@ static void app_tasks_print_stack_watermarks(void)
     app_dsp_link_diag_t dsp;
     app_bms_can_diag_t bms;
     app_modbus_diag_t modbus;
+    app_rs485_modbus_diag_t rs485;
 
     app_storage_get_status(&storage);
     app_settings_get(&settings);
@@ -290,6 +299,7 @@ static void app_tasks_print_stack_watermarks(void)
     app_dsp_link_get_diag(&dsp);
     app_bms_can_get_diag(&bms);
     app_modbus_get_diag(&modbus);
+    app_rs485_modbus_get_diag(&rs485);
 
     printf("stack watermark words: gui=%lu storage=%lu log=%lu iap=%lu comm=%lu core=%lu idle=%lu heap_free=%lu\r\n",
            (unsigned long)runtime.gui_stack_free_words,
@@ -361,4 +371,14 @@ static void app_tasks_print_stack_watermarks(void)
            modbus.last_reg,
            modbus.last_value,
            modbus.last_exception);
+    printf("rs485 modbus: ready=%u rx_bytes=%lu rx_frames=%lu tx_frames=%lu overflow=%lu short=%lu tx_err=%lu last_rx=%lu last_tx=%lu\r\n",
+           rs485.ready ? 1U : 0U,
+           (unsigned long)rs485.rx_byte_count,
+           (unsigned long)rs485.rx_frame_count,
+           (unsigned long)rs485.tx_frame_count,
+           (unsigned long)rs485.rx_overflow_count,
+           (unsigned long)rs485.short_frame_count,
+           (unsigned long)rs485.tx_error_count,
+           (unsigned long)rs485.last_rx_ms,
+           (unsigned long)rs485.last_tx_ms);
 }

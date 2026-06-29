@@ -134,6 +134,7 @@ LVGL 学习资料：
 | NAND Flash | 已确认存在 | 512MB | Apollo V2 硬件参考手册；第一版 LVGL bring-up 暂不使用 |
 | 串口日志端口 | 已确认方向 | USART1 引出为 TTL 串口，可用于通信和调试 | 仍需结合原理图和实物确认 USB 转串口接线 |
 | USB_UART / CH340 | 已确认 | 当前 Windows `COM5` 为板载 CH340 / USART1，只用于串口日志和串口 IAP | Apollo V2 硬件参考手册 2.1.33；不要把 COM5 当作 USB CDC |
+| 板载 RS485 | 原理图已确认，待实板验证 | 收发器 `U9 TPT8485`；UART 走 `USART2`，`PA2=USART2_TX`、`PA3=USART2_RX`；`P7` 跳帽选择 USART2 接 RS232 COM2 或 RS485；方向控制 `RS485_RE` 接 `U11 PCF8574T P6`，PCF8574 I2C 为 `PH4=SCL`、`PH5=SDA`，A0/A1/A2 接地，7-bit 地址 `0x20`；板上有 `R45 120R` 终端电阻 | 来源：`D:\datafile\stm32\3，原理图.zip` 中 `DNF429P_F767P_H743P V2.6.pdf` 和 `阿波罗V2 STM32H743开发板IO引脚分配表.xlsx`；当前用户不在板旁，P7 还未确认插到 RS485 位，USB-RS485 实测待补 |
 | USB_SLAVE / USB OTG | 已实板确认 | MCU USB Device 使用 USB2_OTG_FS，PA11=USB_D-，PA12=USB_D+，连接 USB_SLAVE / USB OTG Type-C 口 | 2026-06-27 Windows 已枚举 MCU USB CDC COM4，VID_0483&PID_5740 |
 | CAN/USB 选择跳帽 | 已实板确认 | P9 必须选择 USB，使 PA11/PA12 连接 USB；若选择 CAN，USB CDC 不会枚举 | 当前板卡已能枚举 USB CDC，说明实测连接路径有效；仍建议装配/交付时记录跳帽位置 |
 | USB CDC 实板枚举 | 已通过 | AppB 日志显示 `USB CDC early init OK` 和 `IAP: USB CDC init OK`，Windows 枚举 `USB 串行设备 (COM4)`，PNP 为 `USB\\VID_0483&PID_5740&MI_00` | COM4 `iap status` 回包正常；USB CDC 传输 324564 字节 AppB 包成功，复位后 Boot 安装 AppB 并 confirmed |

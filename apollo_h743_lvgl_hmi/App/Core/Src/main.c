@@ -9,6 +9,7 @@
 #include "app_comm_bus.h"
 #include "app_iap.h"
 #include "app_modbus_rtu.h"
+#include "app_rs485_modbus.h"
 #include "app_settings.h"
 #include "app_storage.h"
 #include "app_system_model.h"
@@ -131,6 +132,15 @@ int main(void)
     else
     {
         printf("Phase 13 Modbus RTU init FAIL\r\n");
+    }
+    if (app_rs485_modbus_init())
+    {
+        printf("Phase 13 RS485 Modbus init OK: USART2 PA2/PA3, PCF8574 P6 direction, %lu baud\r\n",
+               (unsigned long)APP_RS485_MODBUS_BAUDRATE);
+    }
+    else
+    {
+        printf("Phase 13 RS485 Modbus init skipped: keep virtual Modbus simulation\r\n");
     }
     app_settings_init();
 
