@@ -9,28 +9,44 @@
 #include "main.h"
 #include "uart.h"
 
-#define APP_RS485_RX_RING_SIZE        128U
-#define APP_RS485_FRAME_GAP_MS        5U
+#define APP_RS485_RX_DMA_BUFFER_SIZE  APP_MODBUS_MAX_FRAME_BYTES
 #define APP_RS485_TX_SETTLE_DELAY_US  50U
 #define APP_RS485_TC_TIMEOUT_MS       20U
+#define APP_RS485_MIN_REQUEST_BYTES   8U
 
-static volatile uint8_t s_rx_ring[APP_RS485_RX_RING_SIZE];
-static volatile uint16_t s_rx_head;
-static volatile uint16_t s_rx_tail;
-static volatile uint32_t s_last_rx_ms;
+static uint8_t s_rx_dma_buffer[APP_RS485_RX_DMA_BUFFER_SIZE];
+static uint8_t s_pending_frame[APP_RS485_RX_DMA_BUFFER_SIZE];
+static volatile bool s_pending_frame_ready;
+static volatile uint16_t s_pending_frame_len;
+static volatile uint32_t s_pending_frame_cycles;
+static volatile bool s_rx_rearm_needed;
+static uint32_t s_cycles_per_us;
 static app_rs485_modbus_diag_t s_diag;
 
-static bool app_rs485_ring_read(uint8_t *byte);
-static bool app_rs485_ring_has_data(void);
+static void app_rs485_dwt_init(void);
+static uint32_t app_rs485_now_cycles(void);
+static uint32_t app_rs485_calculate_t35_us(uint32_t baudrate);
+static uint32_t app_rs485_get_actual_baudrate(void);
+static uint32_t app_rs485_t35_cycles(void);
+static bool app_rs485_t35_elapsed(void);
 static void app_rs485_delay_us(uint32_t delay_us);
+static void app_rs485_rx_rearm_from_isr(void);
+static void app_rs485_rx_rearm_from_task(void);
 static bool app_rs485_send_response(const uint8_t *tx, uint32_t tx_len, uint32_t now_ms);
 
 bool app_rs485_modbus_init(void)
 {
     memset(&s_diag, 0, sizeof(s_diag));
-    s_rx_head = 0U;
-    s_rx_tail = 0U;
-    s_last_rx_ms = 0U;
+    memset(s_rx_dma_buffer, 0, sizeof(s_rx_dma_buffer));
+    memset(s_pending_frame, 0, sizeof(s_pending_frame));
+    s_pending_frame_ready = false;
+    s_pending_frame_len = 0U;
+    s_pending_frame_cycles = 0U;
+    s_rx_rearm_needed = false;
+    s_diag.baudrate = APP_RS485_MODBUS_BAUDRATE;
+    s_diag.t35_us = APP_RS485_MODBUS_T35_US;
+
+    app_rs485_dwt_init();
 
     if (!app_io_expander_init())
     {
@@ -45,10 +61,19 @@ bool app_rs485_modbus_init(void)
     }
 
     app_uart2_init(APP_RS485_MODBUS_BAUDRATE);
-    app_uart2_rx_start_it();
-
+    s_diag.baudrate = app_rs485_get_actual_baudrate();
+    s_diag.t35_us = app_rs485_calculate_t35_us(s_diag.baudrate);
     s_diag.ready = true;
-    app_log_event("RS485 Modbus transport ready");
+    if (!app_uart2_rx_start_dma(s_rx_dma_buffer, sizeof(s_rx_dma_buffer)))
+    {
+        s_diag.ready = false;
+        app_log_event("RS485 USART2 RX DMA start failed");
+        return false;
+    }
+
+    app_log_event("RS485 Modbus ready %lu baud T35=%lu us",
+                  (unsigned long)s_diag.baudrate,
+                  (unsigned long)s_diag.t35_us);
     return true;
 }
 
@@ -61,64 +86,53 @@ void app_rs485_modbus_poll(uint32_t now_ms)
 {
     uint8_t rx[APP_MODBUS_MAX_FRAME_BYTES];
     uint8_t tx[APP_MODBUS_MAX_FRAME_BYTES];
-    uint32_t rx_len = 0U;
+    uint32_t rx_len;
     uint32_t tx_len = 0U;
-    bool frame_overflow = false;
+    uint32_t primask;
 
     if (!s_diag.ready)
     {
         return;
     }
 
-    if (!app_rs485_ring_has_data())
+    if (s_rx_rearm_needed)
     {
+        app_rs485_rx_rearm_from_task();
+    }
+
+    primask = app_critical_enter();
+    if (!s_pending_frame_ready)
+    {
+        app_critical_exit(primask);
         return;
     }
-
-    if ((uint32_t)(now_ms - s_last_rx_ms) < APP_RS485_FRAME_GAP_MS)
+    if (!app_rs485_t35_elapsed())
     {
-        return;
-    }
-
-    while (app_rs485_ring_read(&rx[rx_len]))
-    {
-        rx_len++;
-        if (rx_len >= sizeof(rx))
-        {
-            uint8_t discard;
-
-            if (app_rs485_ring_read(&discard))
-            {
-                frame_overflow = true;
-                while (app_rs485_ring_read(&discard))
-                {
-                }
-            }
-            break;
-        }
-    }
-
-    if (frame_overflow)
-    {
-        uint32_t primask = app_critical_enter();
-        s_diag.rx_overflow_count++;
         app_critical_exit(primask);
         return;
     }
 
-    if (rx_len < 4U)
+    rx_len = s_pending_frame_len;
+    if (rx_len > sizeof(rx))
     {
-        uint32_t primask = app_critical_enter();
+        rx_len = sizeof(rx);
+    }
+    memcpy(rx, s_pending_frame, rx_len);
+    s_pending_frame_ready = false;
+    s_pending_frame_len = 0U;
+    app_critical_exit(primask);
+
+    if (rx_len < APP_RS485_MIN_REQUEST_BYTES)
+    {
+        primask = app_critical_enter();
         s_diag.short_frame_count++;
         app_critical_exit(primask);
         return;
     }
 
-    {
-        uint32_t primask = app_critical_enter();
-        s_diag.rx_frame_count++;
-        app_critical_exit(primask);
-    }
+    primask = app_critical_enter();
+    s_diag.rx_frame_count++;
+    app_critical_exit(primask);
 
     if (app_modbus_rtu_process_frame(rx, rx_len, tx, sizeof(tx), &tx_len, now_ms) && (tx_len > 0U))
     {
@@ -140,66 +154,171 @@ void app_rs485_modbus_get_diag(app_rs485_modbus_diag_t *diag)
     app_critical_exit(primask);
 }
 
-void app_uart2_rx_on_byte_from_isr(uint8_t byte)
+void app_uart2_rx_on_idle_from_isr(uint16_t size)
 {
-    uint16_t head = s_rx_head;
-    uint16_t next = (uint16_t)((head + 1U) % APP_RS485_RX_RING_SIZE);
+    uint32_t now_cycles;
+    uint32_t t35_cycles;
+    uint32_t pending_len;
 
-    if (next == s_rx_tail)
+    if (!s_diag.ready)
     {
-        s_diag.rx_overflow_count++;
         return;
     }
 
-    s_rx_ring[head] = byte;
-    s_rx_head = next;
-    s_last_rx_ms = HAL_GetTick();
-    s_diag.rx_byte_count++;
-    s_diag.last_rx_ms = s_last_rx_ms;
-}
-
-static bool app_rs485_ring_read(uint8_t *byte)
-{
-    uint32_t primask;
-    uint16_t tail;
-
-    if (byte == NULL)
+    if ((size == 0U) || (size > sizeof(s_rx_dma_buffer)))
     {
-        return false;
+        s_diag.rx_error_count++;
+        app_rs485_rx_rearm_from_isr();
+        return;
     }
 
-    primask = app_critical_enter();
-    tail = s_rx_tail;
-    if (tail == s_rx_head)
+    s_diag.rx_event_count++;
+    s_diag.rx_byte_count += size;
+    s_diag.last_rx_ms = HAL_GetTick();
+    now_cycles = app_rs485_now_cycles();
+    t35_cycles = app_rs485_t35_cycles();
+
+    if (s_pending_frame_ready)
     {
-        app_critical_exit(primask);
-        return false;
+        pending_len = s_pending_frame_len;
+        if ((t35_cycles > 0U) &&
+            ((uint32_t)(now_cycles - s_pending_frame_cycles) < t35_cycles) &&
+            ((pending_len + size) <= sizeof(s_pending_frame)))
+        {
+            memcpy(&s_pending_frame[pending_len], s_rx_dma_buffer, size);
+            s_pending_frame_len = (uint16_t)(pending_len + size);
+            s_pending_frame_cycles = now_cycles;
+            app_rs485_rx_rearm_from_isr();
+            return;
+        }
+
+        s_diag.rx_overflow_count++;
+        app_rs485_rx_rearm_from_isr();
+        return;
     }
 
-    *byte = s_rx_ring[tail];
-    s_rx_tail = (uint16_t)((tail + 1U) % APP_RS485_RX_RING_SIZE);
-    app_critical_exit(primask);
-    return true;
+    memcpy(s_pending_frame, s_rx_dma_buffer, size);
+    s_pending_frame_len = size;
+    s_pending_frame_cycles = now_cycles;
+    s_pending_frame_ready = true;
+    app_rs485_rx_rearm_from_isr();
 }
 
-static bool app_rs485_ring_has_data(void)
+void app_uart2_rx_on_error_from_isr(uint32_t error_code)
 {
-    bool has_data;
-    uint32_t primask = app_critical_enter();
+    (void)error_code;
 
-    has_data = (s_rx_tail != s_rx_head);
-    app_critical_exit(primask);
-    return has_data;
+    if (!s_diag.ready)
+    {
+        return;
+    }
+
+    s_diag.rx_error_count++;
+    app_rs485_rx_rearm_from_isr();
+}
+
+static void app_rs485_dwt_init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    s_cycles_per_us = SystemCoreClock / 1000000U;
+}
+
+static uint32_t app_rs485_now_cycles(void)
+{
+    return DWT->CYCCNT;
+}
+
+static uint32_t app_rs485_calculate_t35_us(uint32_t baudrate)
+{
+    const uint32_t numerator = APP_RS485_MODBUS_BITS_PER_CHAR * 35U * 1000000U;
+    const uint32_t denominator = baudrate * 10U;
+
+    if (baudrate == 0U)
+    {
+        return APP_RS485_MODBUS_T35_US;
+    }
+
+    return (numerator + denominator - 1U) / denominator;
+}
+
+static uint32_t app_rs485_get_actual_baudrate(void)
+{
+    uint32_t uart_clock_hz = HAL_RCC_GetPCLK1Freq();
+    uint32_t brr = huart2.Instance->BRR;
+
+    if (brr == 0U)
+    {
+        return APP_RS485_MODBUS_BAUDRATE;
+    }
+
+    return (uart_clock_hz + (brr / 2U)) / brr;
+}
+
+static uint32_t app_rs485_t35_cycles(void)
+{
+    if (s_cycles_per_us == 0U)
+    {
+        return 0U;
+    }
+
+    return s_diag.t35_us * s_cycles_per_us;
+}
+
+static bool app_rs485_t35_elapsed(void)
+{
+    uint32_t t35_cycles = app_rs485_t35_cycles();
+
+    if (t35_cycles == 0U)
+    {
+        return true;
+    }
+
+    return ((uint32_t)(app_rs485_now_cycles() - s_pending_frame_cycles) >= t35_cycles);
 }
 
 static void app_rs485_delay_us(uint32_t delay_us)
 {
-    uint32_t loops = delay_us * 80U;
+    uint32_t delay_cycles;
+    uint32_t start_cycles;
 
-    while (loops-- > 0U)
+    if ((delay_us == 0U) || (s_cycles_per_us == 0U))
+    {
+        return;
+    }
+
+    delay_cycles = delay_us * s_cycles_per_us;
+    start_cycles = app_rs485_now_cycles();
+    while ((uint32_t)(app_rs485_now_cycles() - start_cycles) < delay_cycles)
     {
         __NOP();
     }
+}
+
+static void app_rs485_rx_rearm_from_isr(void)
+{
+    if (app_uart2_rx_start_dma(s_rx_dma_buffer, sizeof(s_rx_dma_buffer)))
+    {
+        s_rx_rearm_needed = false;
+    }
+    else
+    {
+        s_rx_rearm_needed = true;
+    }
+}
+
+static void app_rs485_rx_rearm_from_task(void)
+{
+    uint32_t primask;
+
+    if (!app_uart2_rx_start_dma(s_rx_dma_buffer, sizeof(s_rx_dma_buffer)))
+    {
+        return;
+    }
+
+    primask = app_critical_enter();
+    s_rx_rearm_needed = false;
+    app_critical_exit(primask);
 }
 
 static bool app_rs485_send_response(const uint8_t *tx, uint32_t tx_len, uint32_t now_ms)

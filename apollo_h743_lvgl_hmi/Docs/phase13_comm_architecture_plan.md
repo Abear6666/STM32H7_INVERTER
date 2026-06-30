@@ -801,8 +801,10 @@ PCF8574 I2C：PH4=SCL，PH5=SDA，7-bit 地址 0x20
 
 ```text
 从站地址：1
-串口参数：9600, 8N1
-RTU 帧切分：约 3.5 字符静默时间，第一版用 5ms 保守阈值
+串口参数：115200, 8N1
+USART2 接收：HAL_UARTEx_ReceiveToIdle_DMA() + DMA1 Stream0 + USART2 IDLE 中断
+RTU 帧切分：IDLE 事件只作为“收到一段数据”的触发，真正交给协议层前继续等待按波特率计算的 3.5 字符静默时间
+T3.5 计算：8N1 按 10 bit/char，ceil(10 * 3.5 * 1000000 / 115200) = 304 us
 支持功能码：0x03、0x04、0x06
 ```
 
@@ -811,12 +813,12 @@ RTU 帧切分：约 3.5 字符静默时间，第一版用 5ms 保守阈值
 - 本地 `cmake --build --preset gcc-debug` 通过。
 - 串口日志出现 `Phase 13 RS485 Modbus init OK` 或明确 skipped 原因。
 - P7 插到 RS485 位后，用 USB-RS485 转换器连接板载 RS485 A/B。
-- PC 作为 Modbus master，MCU 作为 slave，9600 8N1，slave id 1。
+- PC 作为 Modbus master，MCU 作为 slave，115200 8N1，slave id 1。
 - 读 Holding `0x0000-0x0007` 能读到 DSP 快照。
 - 读 Input/Holding `0x0100-0x0109` 能读到 BMS 快照。
 - 写 Holding `0x0201` 能更新 Modbus 写命令计数，并通过 `APP_COMM_EVENT_MODBUS_WRITE` 进入 `system_model`。
 - 非法地址返回 Modbus 异常响应，CRC 错误不回包但增加 crc 错误计数。
-- 周期日志能看到 `rs485 modbus: ready/rx_bytes/rx_frames/tx_frames/overflow/short/tx_err`。
+- 周期日志能看到 `rs485 modbus: ready/baud/t35_us/rx_bytes/rx_events/rx_frames/tx_frames/overflow/short/rx_err/tx_err`。
 
 ## 面试讲述方式
 

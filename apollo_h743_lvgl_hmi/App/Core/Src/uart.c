@@ -17,9 +17,9 @@
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_rx;
 
 static uint8_t s_uart1_rx_byte;
-static uint8_t s_uart2_rx_byte;
 static volatile uint8_t s_uart1_rx_ring[UART1_RX_RING_SIZE];
 static volatile uint16_t s_uart1_rx_head;
 static volatile uint16_t s_uart1_rx_tail;
@@ -28,7 +28,6 @@ static SemaphoreHandle_t s_uart_tx_mutex;
 #endif
 
 static void app_uart1_rx_rearm(void);
-static void app_uart2_rx_rearm(void);
 
 void app_uart1_init(uint32_t baudrate)
 {
@@ -140,14 +139,34 @@ void app_uart2_init(uint32_t baudrate)
     }
 }
 
-void app_uart2_rx_start_it(void)
+bool app_uart2_rx_start_dma(uint8_t *buffer, uint16_t size)
 {
-    app_uart2_rx_rearm();
+    HAL_StatusTypeDef status;
+
+    if ((buffer == NULL) || (size == 0U))
+    {
+        return false;
+    }
+
+    __HAL_UART_CLEAR_FLAG(&huart2, UART_CLEAR_PEF | UART_CLEAR_FEF | UART_CLEAR_NEF | UART_CLEAR_OREF | UART_CLEAR_IDLEF);
+    status = HAL_UARTEx_ReceiveToIdle_DMA(&huart2, buffer, size);
+    if (status == HAL_OK)
+    {
+        __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+        return true;
+    }
+
+    return false;
 }
 
-__attribute__((weak)) void app_uart2_rx_on_byte_from_isr(uint8_t byte)
+__attribute__((weak)) void app_uart2_rx_on_idle_from_isr(uint16_t size)
 {
-    (void)byte;
+    (void)size;
+}
+
+__attribute__((weak)) void app_uart2_rx_on_error_from_isr(uint32_t error_code)
+{
+    (void)error_code;
 }
 
 void HAL_UART_MspInit(UART_HandleTypeDef *huart)
@@ -175,6 +194,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
     {
         __HAL_RCC_USART2_CLK_ENABLE();
         __HAL_RCC_GPIOA_CLK_ENABLE();
+        __HAL_RCC_DMA1_CLK_ENABLE();
 
         gpio.Pin = GPIO_PIN_2 | GPIO_PIN_3;
         gpio.Mode = GPIO_MODE_AF_PP;
@@ -182,6 +202,27 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
         gpio.Speed = GPIO_SPEED_FREQ_HIGH;
         gpio.Alternate = GPIO_AF7_USART2;
         HAL_GPIO_Init(GPIOA, &gpio);
+
+        hdma_usart2_rx.Instance = DMA1_Stream0;
+        hdma_usart2_rx.Init.Request = DMA_REQUEST_USART2_RX;
+        hdma_usart2_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+        hdma_usart2_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+        hdma_usart2_rx.Init.MemInc = DMA_MINC_ENABLE;
+        hdma_usart2_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+        hdma_usart2_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+        hdma_usart2_rx.Init.Mode = DMA_NORMAL;
+        hdma_usart2_rx.Init.Priority = DMA_PRIORITY_HIGH;
+        hdma_usart2_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+        if (HAL_DMA_Init(&hdma_usart2_rx) != HAL_OK)
+        {
+            Error_Handler();
+        }
+
+        __HAL_LINKDMA(huart, hdmarx, hdma_usart2_rx);
+
+        HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
 
         HAL_NVIC_SetPriority(USART2_IRQn, 6, 0);
         HAL_NVIC_EnableIRQ(USART2_IRQn);
@@ -197,6 +238,11 @@ void USART1_IRQHandler(void)
 void USART2_IRQHandler(void)
 {
     HAL_UART_IRQHandler(&huart2);
+}
+
+void DMA1_Stream0_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&hdma_usart2_rx);
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
@@ -215,11 +261,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         app_uart1_rx_rearm();
         return;
     }
+}
 
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
     if (huart->Instance == USART2)
     {
-        app_uart2_rx_on_byte_from_isr(s_uart2_rx_byte);
-        app_uart2_rx_rearm();
+        app_uart2_rx_on_idle_from_isr(Size);
     }
 }
 
@@ -231,7 +279,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
     else if (huart->Instance == USART2)
     {
-        app_uart2_rx_rearm();
+        app_uart2_rx_on_error_from_isr(huart->ErrorCode);
     }
 }
 
@@ -281,9 +329,4 @@ int _write(int file, char *ptr, int len)
 static void app_uart1_rx_rearm(void)
 {
     (void)HAL_UART_Receive_IT(&huart1, &s_uart1_rx_byte, 1);
-}
-
-static void app_uart2_rx_rearm(void)
-{
-    (void)HAL_UART_Receive_IT(&huart2, &s_uart2_rx_byte, 1);
 }

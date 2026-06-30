@@ -243,7 +243,7 @@ static void task_comm(void *argument)
             app_modbus_rtu_poll(now);
         }
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10U));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(1U));
     }
 }
 
@@ -371,13 +371,17 @@ static void app_tasks_print_stack_watermarks(void)
            modbus.last_reg,
            modbus.last_value,
            modbus.last_exception);
-    printf("rs485 modbus: ready=%u rx_bytes=%lu rx_frames=%lu tx_frames=%lu overflow=%lu short=%lu tx_err=%lu last_rx=%lu last_tx=%lu\r\n",
+    printf("rs485 modbus: ready=%u baud=%lu t35_us=%lu rx_bytes=%lu rx_events=%lu rx_frames=%lu tx_frames=%lu overflow=%lu short=%lu rx_err=%lu tx_err=%lu last_rx=%lu last_tx=%lu\r\n",
            rs485.ready ? 1U : 0U,
+           (unsigned long)rs485.baudrate,
+           (unsigned long)rs485.t35_us,
            (unsigned long)rs485.rx_byte_count,
+           (unsigned long)rs485.rx_event_count,
            (unsigned long)rs485.rx_frame_count,
            (unsigned long)rs485.tx_frame_count,
            (unsigned long)rs485.rx_overflow_count,
            (unsigned long)rs485.short_frame_count,
+           (unsigned long)rs485.rx_error_count,
            (unsigned long)rs485.tx_error_count,
            (unsigned long)rs485.last_rx_ms,
            (unsigned long)rs485.last_tx_ms);

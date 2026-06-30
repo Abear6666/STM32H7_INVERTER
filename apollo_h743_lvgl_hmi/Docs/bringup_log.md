@@ -1,4 +1,4 @@
-# Apollo H743 LVGL HMI 调试记录
+﻿# Apollo H743 LVGL HMI 调试记录
 
 ## 2026-05-25 第 0 阶段
 
@@ -3465,4 +3465,87 @@ rs485 modbus: ready=1 rx_bytes=32 rx_frames=4 tx_frames=4 overflow=0 short=0 tx_
 真实 RS485 Modbus RTU 第一版闭环通过。
 已验证：USART2 PA2/PA3、P7 RS485 跳帽、PCF8574 P6 方向控制、TPT8485 半双工收发、Modbus CRC、0x03 读、0x06 写、非法地址异常响应、诊断计数。
 当前仍是单从站地址 1，波特率固定 9600；后续如要扩展，可做 slave id 参数化、多逻辑地址表、或 Modbus master 轮询表。
+```
+
+## 2026-06-30 Phase 13 Step 9 RS485 Modbus RTU 115200 + DMA/IDLE 改造
+
+目标：在上一轮 9600 8N1 真实 RS485 Modbus RTU 已实板闭环的基础上，把 USART2/RS485 通信改为 115200 8N1，并把接收方式从单字节中断改为 DMA + USART IDLE 事件。此次不修改 Boot/IAP/USB/SD/FatFs/Flash 分区。
+
+本轮代码修改：
+
+```text
+1. app_rs485_modbus.h
+   - APP_RS485_MODBUS_BAUDRATE 从 9600 改为 115200。
+   - 增加 APP_RS485_MODBUS_BITS_PER_CHAR=10。
+   - 增加 APP_RS485_MODBUS_T35_US 计算宏。
+   - 115200 8N1 下：1 char = 10 / 115200 = 86.8 us，T3.5 = 303.8 us，向上取整为 304 us。
+   - 诊断结构增加 baudrate、t35_us、rx_event_count、rx_error_count。
+
+2. uart.h/uart.c
+   - USART1 日志和串口 IAP 路径保持不变。
+   - USART2 RX 改为 HAL_UARTEx_ReceiveToIdle_DMA()。
+   - 使用 DMA1 Stream0，request = DMA_REQUEST_USART2_RX。
+   - 增加 DMA1_Stream0_IRQHandler()，USART2_IRQHandler() 继续负责 IDLE/error 中断。
+   - 关闭 DMA half-transfer 中断，避免半包事件进入 Modbus transport。
+   - RxEventCallback 通过 app_uart2_rx_on_idle_from_isr(size) 交给 RS485 transport。
+   - ErrorCallback 通过 app_uart2_rx_on_error_from_isr(error_code) 统计并重启接收。
+
+3. app_rs485_modbus.c
+   - 移除旧的 USART2 单字节中断 ring buffer 和 5ms 固定帧间隔。
+   - 使用 DMA buffer 接收一段数据，IDLE/full 事件后复制到 pending frame。
+   - IDLE 事件不直接等同 Modbus 帧结束，task_comm 处理前继续等待按波特率计算的 T3.5。
+   - 若 T3.5 之前再次收到 IDLE 片段，则尝试拼接为同一帧；超出缓冲或已有未处理帧则记 overflow。
+   - 使用 DWT->CYCCNT 做微秒级等待和 T3.5 判断。当前工程 DCache=off，DMA buffer 位于 RAM_D1，暂不需要 cache invalidate。
+   - 如果后续打开 DCache，必须补 DMA RX buffer cache invalidate 或放到非 cache 区。
+
+4. app_tasks.c
+   - task_comm 周期从 10ms 调整为 1ms，降低 115200 下的 Modbus 响应延迟。
+   - 周期日志增加 baud、t35_us、rx_events、rx_err 字段。
+
+5. Docs/phase13_comm_architecture_plan.md
+   - Step 9 参数更新为 115200 8N1。
+   - 记录 DMA/IDLE 接收方式和 T3.5 实际计算方式。
+```
+
+本地构建验证：
+
+```text
+cmake --build --preset gcc-debug    PASS
+
+Bootloader FLASH used = 54316 bytes / 128 KiB
+AppA FLASH used       = 349144 bytes / 895 KiB
+AppA body CRC32       = 0x88D13635
+AppB FLASH used       = 349776 bytes / 1023 KiB
+AppB body CRC32       = 0x24C7C9D5
+```
+
+当前未完成的实板验证：
+
+```text
+1. 尚未把本次 115200 + DMA/IDLE 固件重新烧录到板子。
+2. 尚未用 COM6 USB-RS485 在 115200 8N1 下重新跑 0x03/0x04/0x06/非法地址测试。
+3. 尚未观察新日志字段：baud=115200、t35_us=304、rx_events、rx_err。
+4. 尚未重新跑 USB/SD IAP 闭环；本轮未修改对应链路，按边界不强制。
+```
+
+下一次实板测试建议：
+
+```text
+1. 完整烧录 Bootloader + AppA + AppB，或至少确认当前运行的是本次新构建的 AppB。
+2. COM3 看 USART1 日志，确认：
+   - Phase 13 RS485 Modbus init OK: ... 115200 baud
+   - rs485 modbus: ready=1 baud=115200 t35_us=304
+3. COM6 USB-RS485 工具改为 115200 8N1，slave id 1。
+4. 重跑上一轮 4 个用例：
+   - 0x03 读 0x0000 长度 8
+   - 0x03 读 0x0100 长度 10
+   - 0x06 写 0x0201 = 500
+   - 0x03 读非法地址 0x0300 长度 2
+5. 预期日志：rx_events=4、rx_frames=4、tx_frames=4、rx_err=0、overflow=0、short=0。
+```
+
+当前结论：
+
+```text
+代码层已完成 RS485 Modbus RTU 从 9600 单字节中断接收升级到 115200 DMA/IDLE 接收，并按 USART2 BRR 反推的实际波特率计算 RTU T3.5，当前目标配置下日志预期 t35_us=304。本地构建通过，等待下一轮实板 115200 回归确认。
 ```
